@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://rou-wellness.pages.dev/sitemap.xml
