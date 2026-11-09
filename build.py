@@ -150,6 +150,22 @@ def social():
     return f'<aside class="social" aria-label="社群連結">{items}</aside>'
 
 
+def closing():
+    btns = "".join(
+        f'<a class="btn" href="{esc(u)}" rel="noopener" target="_blank">{label}</a>'
+        for u, label in [(IG, "Instagram 私訊"), (FB, "Facebook"), (LINE, "LINE 官方帳號")] if u
+    )
+    return (
+        '<section class="closing"><div class="closing-in">'
+        f'<p class="slogan">{esc(SLOGAN)}</p>'
+        '<h2>想了解適合你的課程？</h2>'
+        '<p>告訴我你想練什麼、身體目前的狀況，我會回覆你。</p>'
+        f'<div class="closing-btns">{btns}</div>'
+        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>'
+        '</div></section>'
+    )
+
+
 def page(title, desc, path, main, kind="website", ld=None, full_title=None):
     url = SITE_URL + path
     t = full_title or f"{title}｜{SITE_NAME}"
@@ -188,6 +204,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <main>
 {main}
 </main>
+{closing()}
 <footer class="site-footer">
   <p>{esc(DISCLAIMER)}</p>
   <p>Copyright © 2026 rou_wellness</p>

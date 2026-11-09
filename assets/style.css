@@ -75,7 +75,7 @@ nav a:hover{color:var(--accent)}
 
 @media (max-width:760px){
   .hero{grid-template-columns:1fr;gap:32px;padding:20px 0 56px}
-  .arch{aspect-ratio:3/2}
+  .arch{aspect-ratio:1/1}
   .cards,.svcs{grid-template-columns:1fr}
   .svc-img{height:170px}
   .social{top:auto;bottom:max(12px,env(safe-area-inset-bottom,0px));right:50%;transform:translateX(50%);flex-direction:row;gap:10px}
@@ -94,3 +94,17 @@ a.ser:hover{color:var(--accent);text-decoration:underline}
 .fchip.on{background:var(--b,var(--rose));border-color:var(--c,var(--ink));font-weight:500}
 .lead{margin-top:6px;color:var(--muted)}
 @media (prefers-reduced-motion:no-preference){.card h3,.btn,.social a,.fchip{transition:color .15s,background .15s}}
+
+.arch img{object-position:50% 62%}
+.closing{margin-top:64px;border-radius:999px 999px 28px 28px / 160px 160px 28px 28px;background:linear-gradient(180deg,var(--tint),var(--rose) 160%);padding:72px 24px 56px;text-align:center}
+.closing-in{max-width:30rem;margin:0 auto}
+.closing .slogan{margin:0 0 14px}
+.closing h2{font-family:var(--serif);font-weight:500;font-size:clamp(22px,4vw,28px);letter-spacing:.06em;line-height:1.5}
+.closing p{color:var(--muted)}
+.closing h2 + p{margin-top:8px}
+.closing-btns{display:flex;flex-wrap:wrap;justify-content:center;gap:10px 12px;margin-top:22px}
+.closing .btn{margin-top:0;background:#fff;padding:9px 22px;font-size:14.5px}
+.closing .btn:hover{background:var(--accent);color:#fff}
+.closing-nav{display:flex;justify-content:center;gap:26px;margin-top:30px;font-size:14px}
+.closing-nav a{color:var(--muted);text-decoration:none}
+.closing-nav a:hover{color:var(--accent)}
