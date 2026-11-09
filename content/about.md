@@ -16,7 +16,7 @@ description: 柔柔老師是具七年臨床經驗的醫療專業背景皮拉提�
 
 ## 服務地區
 
-以台中為主，之後也會到新竹。
+台中地區。
 
 ## 專業訓練與證照
 
@@ -29,4 +29,4 @@ description: 柔柔老師是具七年臨床經驗的醫療專業背景皮拉提�
 
 ## 聯絡與預約
 
-目前請透過 [Instagram](https://www.instagram.com/rou_wellness/) 私訊我，告訴我你想了解的課程和目前的身體狀況，我會再回覆你。
+歡迎透過 [Facebook](https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr) 或 [Instagram](https://www.instagram.com/rou_wellness/) 傳訊息給我，告訴我你想了解的課程和目前的身體狀況，我會再回覆你。Instagram 上也有不一樣的內容，歡迎追蹤。

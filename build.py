@@ -19,7 +19,7 @@ ROLE_LINE = "台中｜具醫療專業背景的皮拉提斯與重訓教練"
 HOME_TITLE = "Rou Wellness 柔柔老師｜台中皮拉提斯與重訓教練"
 HOME_DESC = "柔柔老師是台中的皮拉提斯與重訓教練，具醫療專業背景。分享重訓與皮拉提斯的動作要點，以及營養、代謝健康與復健相關知識。"
 IG = "https://www.instagram.com/rou_wellness/"
-FB = ""    # 填上 Facebook 粉專網址，按鈕就會出現
+FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
 SERVICES = [
@@ -153,13 +153,13 @@ def social():
 def closing():
     btns = "".join(
         f'<a class="btn" href="{esc(u)}" rel="noopener" target="_blank">{label}</a>'
-        for u, label in [(IG, "Instagram 私訊"), (FB, "Facebook"), (LINE, "LINE 官方帳號")] if u
+        for u, label in [(IG, "Instagram"), (FB, "Facebook"), (LINE, "LINE 官方帳號")] if u
     )
     return (
         '<section class="closing"><div class="closing-in">'
         f'<p class="slogan">{esc(SLOGAN)}</p>'
         '<h2>想了解適合你的課程？</h2>'
-        '<p>告訴我你想練什麼、身體目前的狀況，我會回覆你。</p>'
+        '<p>Instagram 上有不一樣的內容，也歡迎追蹤，或直接傳訊息告訴我你的需求。</p>'
         f'<div class="closing-btns">{btns}</div>'
         '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>'
         '</div></section>'

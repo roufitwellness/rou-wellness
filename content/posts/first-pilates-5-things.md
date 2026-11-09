@@ -43,4 +43,4 @@ description: 第一次上皮拉提斯會緊張很正常。這篇整理上課前�
 
 比起一次練很久，固定、穩定地練習通常更有幫助。找一個你信任、願意聽你說明身體狀況的老師，再依你的步調慢慢進步。
 
-如果你想了解適合自己的課程，歡迎到 [Instagram](https://www.instagram.com/rou_wellness/) 私訊柔柔老師。
+如果你想了解適合自己的課程，歡迎傳訊息給柔柔老師（[Facebook](https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr) 或 [Instagram](https://www.instagram.com/rou_wellness/)）。Instagram 上也有不一樣的內容，歡迎追蹤。

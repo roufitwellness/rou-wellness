@@ -45,4 +45,4 @@ description: 徒手深蹲是下肢訓練的基礎動作。這篇整理站姿、�
 
 ## 下一集
 
-下一集是「高腳杯深蹲」，看看把重量抱在胸前，動作會有什麼不同。想看哪個動作，歡迎到 [Instagram](https://www.instagram.com/rou_wellness/) 告訴我。
+下一集是「高腳杯深蹲」，看看把重量抱在胸前，動作會有什麼不同。想看哪個動作，歡迎在 [Facebook](https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr) 或 [Instagram](https://www.instagram.com/rou_wellness/) 留言告訴我，Instagram 上也有不一樣的內容。
