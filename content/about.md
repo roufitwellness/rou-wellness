@@ -32,6 +32,6 @@ description: 柔柔老師是具七年臨床經驗的醫療專業背景皮拉提�
 
 ## 聯絡與預約
 
-目前我準備考試中，2027 年 3 月前暫不接新學員，不過有任何問題，還是歡迎傳訊息給我，我會回覆你。
+目前我時間比較有限，2027 年 3 月前暫不接新學員，不過有任何問題，還是歡迎傳訊息給我，我會回覆你。
 
 歡迎透過 [Facebook](https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr) 或 [Instagram](https://www.instagram.com/rou_wellness/) 傳訊息給我，告訴我你想了解的課程和目前的身體狀況，我會再回覆你。Instagram 上也有不一樣的內容，歡迎追蹤。

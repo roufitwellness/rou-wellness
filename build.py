@@ -22,7 +22,7 @@ IG = "https://www.instagram.com/rou_wellness/"
 FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
-NOTICE = "目前準備考試中，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
+NOTICE = "目前時間比較有限，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
 
 SERVICES = [
     {"name": "一對一皮拉提斯", "desc": "依你的身體狀況與目標，一對一調整動作。", "image": "service-1.png"},
