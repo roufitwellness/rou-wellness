@@ -22,9 +22,6 @@ IG = "https://www.instagram.com/rou_wellness/"
 FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
-FEEDBACK_CSV = ""  # 試算表「發布到網路」的 CSV 連結，貼在這裡，公開的回饋就會顯示
-FEEDBACK_FORM = "https://docs.google.com/forms/d/e/1FAIpQLSdM_FAwGiM1tsLhVmob-rxHSd9r-rrzxENMnuYXc87CGsfefA/viewform?embedded=true"
-
 NOTICE = "目前時間比較有限，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
 
 SERVICES = [
@@ -317,7 +314,7 @@ def main():
   <h2>服務項目</h2><div class="sub">SERVICES</div>
   <div class="svcs">{svcs}</div>
 </section>
-<section class="sec fb" data-feedback="{esc(FEEDBACK_CSV)}" hidden>
+<section class="sec fb" data-feedback hidden>
   <h2>學員回饋</h2><div class="sub">FEEDBACK</div>
   <div class="fb-list"></div>
   <p class="all"><a href="/feedback/">我也想留下回饋 →</a></p>
@@ -377,10 +374,16 @@ def main():
 
     # 學員回饋
     fb_main = ('<article class="post"><h1 class="page-title">學員回饋</h1>'
-        '<p class="lead">如果你上過我的課，很歡迎留下幾句話。你填的內容我會先看過，經過你同意才會公開在網站上，只顯示你填的稱呼。</p>'
-        f'<div class="fb" data-feedback="{esc(FEEDBACK_CSV)}" hidden><div class="fb-list"></div></div><script src="/feedback.js" defer></script>'
-        f'<div class="form-wrap"><iframe src="{FEEDBACK_FORM}" title="學員回饋表單" loading="lazy">載入中…</iframe></div>'
-        f'<p class="form-alt">表單沒有顯示的話，可以<a href="{FEEDBACK_FORM.replace("?embedded=true", "")}" target="_blank" rel="noopener">在新分頁開啟</a>。</p></article>')
+        '<p class="lead">如果你上過我的課，很歡迎留下幾句話。送出後我會先看過，再公開在網站上，只顯示你填的稱呼。</p>'
+        '<div class="fb" data-feedback hidden><div class="fb-list"></div></div>'
+        '<form id="fb-form" class="fb-form" novalidate>'
+        '<label>稱呼<span>（例如 L 同學，不填會顯示「學員」）</span><input name="name" maxlength="20" autocomplete="off"></label>'
+        '<label>想對老師說的話<textarea name="message" rows="6" maxlength="600" required></textarea></label>'
+        '<input name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">'
+        '<p class="fb-note">送出即表示你同意將這段文字公開顯示在這個網站上。</p>'
+        '<button type="submit" class="btn">送出回饋</button><p id="fb-msg" class="fb-err" role="alert"></p></form>'
+        '<p id="fb-thanks" class="lead" hidden>謝謝你的回饋！我會盡快看過，確認後會顯示在網站上。</p>'
+        '<script src="/feedback.js" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
 
     # 404

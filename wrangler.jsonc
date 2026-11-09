@@ -1,7 +1,17 @@
 {
   "name": "rou-wellness",
+  "main": "worker.js",
   "compatibility_date": "2026-11-04",
   "assets": {
-    "directory": "./site"
-  }
+    "directory": "./site",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/admin", "/admin/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rou-feedback",
+      "database_id": "f036eb2d-0e04-493d-9f33-1aa50f4eddaf"
+    }
+  ]
 }
