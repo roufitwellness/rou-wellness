@@ -374,7 +374,7 @@ def main():
 
     # 學員回饋
     fb_main = ('<article class="post"><h1 class="page-title">學員回饋</h1>'
-        '<p class="lead">如果你上過我的課，很歡迎留下幾句話。送出後我會先看過，再公開在網站上，只顯示你填的稱呼。</p>'
+        '<p class="lead">如果你上過我的課，很歡迎留下幾句話。</p>'
         '<div class="fb" data-feedback hidden><div class="fb-list"></div></div>'
         '<form id="fb-form" class="fb-form" novalidate>'
         '<label>稱呼<span>（例如 L 同學，不填會顯示「學員」）</span><input name="name" maxlength="20" autocomplete="off"></label>'
