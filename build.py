@@ -190,6 +190,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <meta property="og:locale" content="zh_TW">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#FBF4F2">
+<meta name="google-site-verification" content="rgBamp5bB5_OIsSn6_DsuY9uL47e_mf1MT2KMcageq4" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
