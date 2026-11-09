@@ -2,6 +2,7 @@ title: 徒手深蹲怎麼做？5 個動作重點與常見錯誤
 date: 2026-11-03
 slug: bodyweight-squat-key-points
 category: 重訓動作要點
+image: cover-squat.png
 series: 下肢蹲系列
 episode: 1
 description: 徒手深蹲是下肢訓練的基礎動作。這篇整理站姿、下蹲、起身的 5 個重點，以及屁股眨眼、膝蓋內夾等常見錯誤和注意事項。
