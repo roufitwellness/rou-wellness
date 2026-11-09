@@ -110,3 +110,5 @@ a.ser:hover{color:var(--accent);text-decoration:underline}
 .closing-nav a:hover{color:var(--accent)}
 
 .closing p{text-wrap:balance}
+
+.notice{max-width:40rem;margin:-24px auto 40px;padding:10px 22px;border-radius:999px;background:var(--tint);border:1px solid var(--line);color:var(--muted);font-size:14.5px;line-height:1.8;text-align:center;text-wrap:balance}

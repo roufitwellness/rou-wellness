@@ -22,10 +22,12 @@ IG = "https://www.instagram.com/rou_wellness/"
 FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
+NOTICE = "目前準備考試中，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
+
 SERVICES = [
     {"name": "一對一皮拉提斯", "desc": "依你的身體狀況與目標，一對一調整動作。", "image": "service-1.png"},
     {"name": "小團體皮拉提斯", "desc": "小班教學，人數有上限，節奏比較從容。", "image": "service-2.png"},
-    {"name": "淋巴引流", "desc": "CHIKLY 淋巴引流（LDT）。以輕柔緩慢的手法引導淋巴液流動，幫助身體放鬆。", "image": "service-3.png"},
+    {"name": "淋巴引流", "desc": "一種輕柔的手技，幫助身體放鬆。", "image": "service-3.png"},
 ]
 DISCLAIMER = "本站內容為一般運動與健康促進資訊，不能取代醫療專業的評估與建議。"
 # 文章分類（對應粉專的五大知識系列與配色）。文章檔的 category 要寫跟 name 一樣的名稱。
@@ -299,6 +301,7 @@ def main():
   </div>
   <div class="arch">{hero_media}</div>
 </section>
+<p class="notice">{esc(NOTICE)}</p>
 <section class="sec">
   <h2>最新文章</h2><div class="sub">LATEST</div>
   {filter_bar()}
