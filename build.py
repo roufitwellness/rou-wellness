@@ -11,7 +11,7 @@ OUT = ROOT / "site"
 IMG_DIR = ROOT / "assets" / "images"
 
 # ---------- 這一區是網站設定，要改名字、連結、服務項目都在這裡 ----------
-SITE_URL = "https://rou-wellness.pages.dev"  # 若網址被用走，改這一行再重新產生
+SITE_URL = "https://rou-wellness.roufitwellness.workers.dev"  # 若網址被用走，改這一行再重新產生
 SITE_NAME = "Rou Wellness 柔柔老師"
 NAME = "柔柔老師"
 SLOGAN = "Be as you are, Glow as you heal."
