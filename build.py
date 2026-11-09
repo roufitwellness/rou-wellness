@@ -159,7 +159,7 @@ def closing():
         '<section class="closing"><div class="closing-in">'
         f'<p class="slogan">{esc(SLOGAN)}</p>'
         '<h2>想了解適合你的課程？</h2>'
-        '<p>Instagram 上有不一樣的內容，也歡迎追蹤，或直接傳訊息告訴我你的需求。</p>'
+        '<p>Instagram 有不一樣的內容，歡迎追蹤。</p>'
         f'<div class="closing-btns">{btns}</div>'
         '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>'
         '</div></section>'
