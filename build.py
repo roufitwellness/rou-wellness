@@ -382,7 +382,7 @@ def main():
         '<input name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">'
         '<p class="fb-note">送出即表示你同意將這段文字公開顯示在這個網站上。</p>'
         '<button type="submit" class="btn">送出回饋</button><p id="fb-msg" class="fb-err" role="alert"></p></form>'
-        '<p id="fb-thanks" class="lead" hidden>謝謝你的回饋！我會盡快看過，確認後會顯示在網站上。</p>'
+        '<p id="fb-thanks" class="lead" hidden>謝謝你的回饋！</p>'
         '<script src="/feedback.js" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
 
