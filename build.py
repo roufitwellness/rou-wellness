@@ -22,6 +22,8 @@ IG = "https://www.instagram.com/rou_wellness/"
 FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
+FEEDBACK_FORM = "https://docs.google.com/forms/d/e/1FAIpQLSdM_FAwGiM1tsLhVmob-rxHSd9r-rrzxENMnuYXc87CGsfefA/viewform?embedded=true"
+
 NOTICE = "目前時間比較有限，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
 
 SERVICES = [
@@ -163,7 +165,7 @@ def closing():
         '<h2>想了解適合你的課程？</h2>'
         '<p>Instagram 有不一樣的內容，歡迎追蹤。</p>'
         f'<div class="closing-btns">{btns}</div>'
-        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>'
+        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/feedback/">學員回饋</a></nav>'
         '</div></section>'
     )
 
@@ -365,13 +367,20 @@ def main():
     write("about/index.html", page(about["title"], about["description"], "/about/",
           f'<article class="post"><h1 class="page-title">{esc(about["title"])}</h1>{cover}<div class="prose">{md_to_html(about["body"])}</div></article>'))
 
+    # 學員回饋
+    fb_main = ('<article class="post"><h1 class="page-title">學員回饋</h1>'
+        '<p class="lead">如果你上過我的課，很歡迎留下幾句話。你填的內容我會先看過，經過你同意才會公開在網站上，只顯示你填的稱呼。</p>'
+        f'<div class="form-wrap"><iframe src="{FEEDBACK_FORM}" title="學員回饋表單" loading="lazy">載入中…</iframe></div>'
+        f'<p class="form-alt">表單沒有顯示的話，可以<a href="{FEEDBACK_FORM.replace("?embedded=true", "")}" target="_blank" rel="noopener">在新分頁開啟</a>。</p></article>')
+    write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
+
     # 404
     write("404.html", page("找不到頁面", "找不到這個頁面。", "/404.html",
           '<section class="sec first"><h1 class="page-title">找不到這個頁面</h1><p>網址可能打錯了，或文章已經移動。<a href="/">回首頁</a></p></section>'))
 
     # 搜尋引擎檔案
     newest = posts[0]["date"] if posts else None
-    urls = [("/", newest), ("/posts/", newest), ("/about/", None)]
+    urls = [("/", newest), ("/posts/", newest), ("/about/", None), ("/feedback/", None)]
     urls += [(f'/category/{c["slug"]}/', None) for c in used]
     urls += [(f'/series/{s["slug"]}/', None) for s in used_series]
     urls += [(f'/posts/{p["slug"]}/', p["date"]) for p in posts]
