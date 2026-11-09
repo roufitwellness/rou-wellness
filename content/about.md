@@ -23,6 +23,7 @@ description: 柔柔老師是具七年臨床經驗的醫療專業背景皮拉提�
 
 ## 專業訓練與證照
 
+- 高考職能治療師
 - STOTT PILATES
 - CHIKLY 淋巴引流（LDT Level 1 至 3）
 - PNF
