@@ -1,7 +1,9 @@
 title: 徒手深蹲怎麼做？5 個動作重點與常見錯誤
 date: 2026-11-03
 slug: bodyweight-squat-key-points
-category: 重量訓練
+category: 重訓動作要點
+series: 下肢蹲系列
+episode: 1
 description: 徒手深蹲是下肢訓練的基礎動作。這篇整理站姿、下蹲、起身的 5 個重點，以及屁股眨眼、膝蓋內夾等常見錯誤和注意事項。
 ---
 徒手深蹲看起來簡單，卻是很多人做不順的動作：不是膝蓋不舒服，就是下背很緊。先把動作做穩，之後加重量（例如槓鈴深蹲、高腳杯深蹲）才會比較安心。這篇是「下肢蹲系列」的第一集，整理 5 個重點。
@@ -43,4 +45,4 @@ description: 徒手深蹲是下肢訓練的基礎動作。這篇整理站姿、�
 
 ## 下一集
 
-下一集我們會看「箱上深蹲」，用一個固定的高度幫你找到蹲下去的位置。想看哪個動作，歡迎到 [Instagram](https://www.instagram.com/rou_wellness/) 告訴我。
+下一集是「高腳杯深蹲」，看看把重量抱在胸前，動作會有什麼不同。想看哪個動作，歡迎到 [Instagram](https://www.instagram.com/rou_wellness/) 告訴我。

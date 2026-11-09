@@ -17,7 +17,7 @@ NAME = "柔柔老師"
 SLOGAN = "Be as you are, Glow as you heal."
 ROLE_LINE = "台中｜具醫療專業背景的皮拉提斯與重訓教練"
 HOME_TITLE = "Rou Wellness 柔柔老師｜台中皮拉提斯與重訓教練"
-HOME_DESC = "柔柔老師是台中的皮拉提斯與重訓教練，具醫療專業背景。分享重量訓練與皮拉提斯的動作重點與注意事項。"
+HOME_DESC = "柔柔老師是台中的皮拉提斯與重訓教練，具醫療專業背景。分享重訓與皮拉提斯的動作要點，以及營養、代謝健康與復健相關知識。"
 IG = "https://www.instagram.com/rou_wellness/"
 FB = ""    # 填上 Facebook 粉專網址，按鈕就會出現
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
@@ -28,6 +28,18 @@ SERVICES = [
     {"name": "淋巴引流", "desc": "CHIKLY 淋巴引流（LDT）。", "image": "service-3.jpg"},
 ]
 DISCLAIMER = "本站內容為一般運動與健康促進資訊，不能取代醫療專業的評估與建議。"
+# 文章分類（對應粉專的五大知識系列與配色）。文章檔的 category 要寫跟 name 一樣的名稱。
+CATEGORIES = [
+    {"slug": "strength", "name": "重訓動作要點", "desc": "重量訓練的動作重點、常見代償與安全注意事項。", "color": "#2F6F5E", "bg": "#EEF2EE"},
+    {"slug": "pilates", "name": "皮拉提斯動作要點", "desc": "皮拉提斯的動作控制、呼吸，以及骨盆與脊椎的排列。", "color": "#4F7396", "bg": "#EDF1F5"},
+    {"slug": "metabolic", "name": "代謝健康", "desc": "血糖、胰島素、能量代謝、睡眠與壓力的相關知識。", "color": "#9B4022", "bg": "#F0DFC8"},
+    {"slug": "nutrition", "name": "營養學", "desc": "巨量與微量營養素、食物來源與日常飲食的營養知識。", "color": "#8E4B58", "bg": "#F8E5E9"},
+    {"slug": "rehab", "name": "復健相關知識", "desc": "關節力學、動作控制與身體功能的相關知識。", "color": "#514B35", "bg": "#FAF7E9"},
+]
+# 連載系列。文章檔用 series 與 episode 兩個欄位指定。
+SERIES = [
+    {"slug": "lower-body-squat", "name": "下肢蹲系列", "desc": "一集一個蹲類動作，整理動作重點與注意事項。"},
+]
 # ----------------------------------------------------------------------
 
 
@@ -105,6 +117,25 @@ def zh_date(d):
     return f"{int(y)}年{int(m)}月{int(dd)}日"
 
 
+def cat_by_name(name):
+    for c in CATEGORIES:
+        if c["name"] == name:
+            return c
+    return None
+
+
+def cat_style(c):
+    return f'--c:{c["color"]};--b:{c["bg"]}' if c else ""
+
+
+def chip(c, link=True):
+    if not c:
+        return ""
+    if link:
+        return f'<a class="chip" href="/category/{c["slug"]}/" style="{cat_style(c)}">{esc(c["name"])}</a>'
+    return f'<span class="chip" style="{cat_style(c)}">{esc(c["name"])}</span>'
+
+
 ICON_IG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17" cy="7" r="1" fill="currentColor" stroke="none"/></svg>'
 ICON_FB = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.6 21v-7.6h2.6l.4-3h-3V8.5c0-.9.3-1.5 1.5-1.5h1.6V4.3c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H8v3h2.6V21z"/></svg>'
 ICON_LINE = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.5c-5 0-9 3.2-9 7.2 0 3.5 3.1 6.4 7.3 7 .3.1.7.3.8.6l.1 1c0 .3-.2 1 .9.6 1.1-.5 5.8-3.4 7.9-5.9 1.3-1.5 2-3 2-4.3 0-4-4-7.2-9-7.2z"/></svg>'
@@ -159,7 +190,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 </main>
 <footer class="site-footer">
   <p>{esc(DISCLAIMER)}</p>
-  <p>© 2026 {NAME}</p>
+  <p>Copyright © 2026 rou_wellness</p>
 </footer>
 </div>
 {social()}
@@ -169,11 +200,13 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 
 
 def card(p):
+    c = cat_by_name(p.get("category"))
     thumb = img(p["image"], p["title"]) if has_img(p.get("image")) else f'<span class="thumb-ph">{esc(p.get("category", ""))}</span>'
-    cat = f'・{esc(p["category"])}' if p.get("category") else ""
+    ser = f'<span class="ser">{esc(p["series"])} EP{esc(p["episode"])}</span>' if p.get("series") and p.get("episode") else ""
     return (
-        f'<a class="card" href="/posts/{p["slug"]}/"><div class="thumb">{thumb}</div>'
-        f'<div class="meta">{zh_date(p["date"])}{cat}</div><h3>{esc(p["title"])}</h3>'
+        f'<a class="card" href="/posts/{p["slug"]}/"><div class="thumb" style="{cat_style(c)}">{thumb}</div>'
+        f'<div class="tags">{chip(c, link=False)}{ser}</div>'
+        f'<div class="meta">{zh_date(p["date"])}</div><h3>{esc(p["title"])}</h3>'
         f'<p>{esc(p["description"])}</p><span class="more">閱讀全文 →</span></a>'
     )
 
@@ -222,6 +255,16 @@ def main():
     posts.sort(key=lambda p: p["date"], reverse=True)
     about = load(ROOT / "content" / "about.md")
 
+    # 只顯示已經有文章的分類，空的分類不會出現
+    used = [c for c in CATEGORIES if any(p.get("category") == c["name"] for p in posts)]
+
+    def filter_bar(active=None):
+        links = [f'<a class="fchip{" on" if active is None else ""}" href="/posts/">全部</a>']
+        for c in used:
+            on = " on" if active == c["slug"] else ""
+            links.append(f'<a class="fchip{on}" href="/category/{c["slug"]}/" style="{cat_style(c)}">{esc(c["name"])}</a>')
+        return '<nav class="filters" aria-label="文章分類">' + "".join(links) + "</nav>"
+
     # 首頁
     hero_media = img(HERO_IMAGE, NAME, eager=True) if has_img(HERO_IMAGE) else ""
     svcs = "".join(
@@ -241,6 +284,7 @@ def main():
 </section>
 <section class="sec">
   <h2>最新文章</h2><div class="sub">LATEST</div>
+  {filter_bar()}
   <div class="cards">{"".join(card(p) for p in posts[:4])}</div>
   <p class="all"><a href="/posts/">看全部文章 →</a></p>
 </section>
@@ -253,19 +297,37 @@ def main():
     write("index.html", page(SITE_NAME, HOME_DESC, "/", home, ld=ld, full_title=HOME_TITLE))
 
     # 文章列表
-    write("posts/index.html", page("全部文章", "重量訓練與皮拉提斯的動作重點、注意事項，所有文章列表。", "/posts/",
-          f'<section class="sec first"><h1 class="page-title">全部文章</h1><div class="cards">{"".join(card(p) for p in posts)}</div></section>'))
+    write("posts/index.html", page("全部文章", "重訓、皮拉提斯、營養、代謝健康與復健相關知識，所有文章列表。", "/posts/",
+          f'<section class="sec first"><h1 class="page-title">全部文章</h1>{filter_bar()}<div class="cards">{"".join(card(p) for p in posts)}</div></section>'))
+
+    # 分類頁
+    for c in used:
+        ps = [p for p in posts if p.get("category") == c["name"]]
+        write(f'category/{c["slug"]}/index.html', page(c["name"], c["desc"], f'/category/{c["slug"]}/',
+              f'<section class="sec first"><h1 class="page-title">{esc(c["name"])}</h1><p class="lead">{esc(c["desc"])}</p>{filter_bar(c["slug"])}<div class="cards">{"".join(card(p) for p in ps)}</div></section>'))
+
+    # 系列頁
+    used_series = []
+    for s in SERIES:
+        ps = sorted([p for p in posts if p.get("series") == s["name"]], key=lambda p: int(p.get("episode") or 0))
+        if ps:
+            used_series.append(s)
+            write(f'series/{s["slug"]}/index.html', page(s["name"], s["desc"], f'/series/{s["slug"]}/',
+                  f'<section class="sec first"><h1 class="page-title">{esc(s["name"])}</h1><p class="lead">{esc(s["desc"])}</p><div class="cards">{"".join(card(p) for p in ps)}</div></section>'))
 
     # 單篇文章
     for p in posts:
         others = [o for o in posts if o["slug"] != p["slug"]][:2]
         more = f'<section class="sec"><h2>更多文章</h2><div class="cards">{"".join(card(o) for o in others)}</div></section>' if others else ""
         cover = f'<div class="cover">{img(p["image"], p["title"], eager=True)}</div>' if has_img(p.get("image")) else ""
-        cat = f'・{esc(p["category"])}' if p.get("category") else ""
+        c = cat_by_name(p.get("category"))
+        ser = next((s for s in SERIES if s["name"] == p.get("series")), None)
+        ser_html = f'<a class="ser" href="/series/{ser["slug"]}/">{esc(ser["name"])} EP{esc(p.get("episode", ""))}</a>' if ser else ""
         main_html = f"""<article class="post">
   <p class="crumb"><a href="/posts/">← 全部文章</a></p>
+  <div class="tags">{chip(c)}{ser_html}</div>
   <h1 class="page-title">{esc(p["title"])}</h1>
-  <p class="meta">{zh_date(p["date"])}{cat}・{NAME}</p>
+  <p class="meta">{zh_date(p["date"])}・{NAME}</p>
   {cover}
   <div class="prose">
 {md_to_html(p["body"])}
@@ -288,7 +350,10 @@ def main():
 
     # 搜尋引擎檔案
     newest = posts[0]["date"] if posts else None
-    urls = [("/", newest), ("/posts/", newest), ("/about/", None)] + [(f'/posts/{p["slug"]}/', p["date"]) for p in posts]
+    urls = [("/", newest), ("/posts/", newest), ("/about/", None)]
+    urls += [(f'/category/{c["slug"]}/', None) for c in used]
+    urls += [(f'/series/{s["slug"]}/', None) for s in used_series]
+    urls += [(f'/posts/{p["slug"]}/', p["date"]) for p in posts]
     sm = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for path, d in urls:
         sm.append(f"<url><loc>{SITE_URL}{path}</loc>" + (f"<lastmod>{d}</lastmod>" if d else "") + "</url>")
