@@ -25,7 +25,7 @@ HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔�
 SERVICES = [
     {"name": "一對一皮拉提斯", "desc": "依你的身體狀況與目標，一對一調整動作。", "image": "service-1.png"},
     {"name": "小團體皮拉提斯", "desc": "小班教學，人數有上限，節奏比較從容。", "image": "service-2.png"},
-    {"name": "淋巴引流", "desc": "CHIKLY 淋巴引流（LDT）。", "image": "service-3.png"},
+    {"name": "淋巴引流", "desc": "CHIKLY 淋巴引流（LDT）。以輕柔緩慢的手法引導淋巴液流動，幫助身體放鬆。", "image": "service-3.png"},
 ]
 DISCLAIMER = "本站內容為一般運動與健康促進資訊，不能取代醫療專業的評估與建議。"
 # 文章分類（對應粉專的五大知識系列與配色）。文章檔的 category 要寫跟 name 一樣的名稱。
