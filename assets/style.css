@@ -48,7 +48,7 @@ nav a:hover{color:var(--accent)}
 .all{margin-top:32px;font-size:15px}
 
 .svcs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px}
-.svc-img{height:190px;border-radius:999px 999px 20px 20px;overflow:hidden;background:linear-gradient(180deg,var(--rose),var(--tint) 85%)}
+.svc-img{height:230px;border-radius:999px 999px 20px 20px;overflow:hidden;background:linear-gradient(180deg,var(--rose),var(--tint) 85%)}
 .svc h3{font-family:var(--serif);font-weight:500;font-size:19px;margin-top:16px}
 .svc p{margin-top:6px;color:var(--muted);font-size:15px}
 
@@ -77,7 +77,7 @@ nav a:hover{color:var(--accent)}
   .hero{grid-template-columns:1fr;gap:32px;padding:20px 0 56px}
   .arch{aspect-ratio:1/1}
   .cards,.svcs{grid-template-columns:1fr}
-  .svc-img{height:170px}
+  .svc-img{height:210px}
   .social{top:auto;bottom:max(12px,env(safe-area-inset-bottom,0px));right:50%;transform:translateX(50%);flex-direction:row;gap:10px}
 }
 .tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:16px}
