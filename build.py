@@ -22,6 +22,7 @@ IG = "https://www.instagram.com/rou_wellness/"
 FB = "https://www.facebook.com/share/1CLFqLeUiY/?mibextid=wwXIfr"
 LINE = ""  # 填上 LINE 官方帳號加入好友網址，按鈕就會出現
 HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔和的粉色拱形
+FEEDBACK_CSV = ""  # 試算表「發布到網路」的 CSV 連結，貼在這裡，公開的回饋就會顯示
 FEEDBACK_FORM = "https://docs.google.com/forms/d/e/1FAIpQLSdM_FAwGiM1tsLhVmob-rxHSd9r-rrzxENMnuYXc87CGsfefA/viewform?embedded=true"
 
 NOTICE = "目前時間比較有限，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
@@ -271,6 +272,7 @@ def main():
     OUT.mkdir()
     shutil.copy(ROOT / "assets" / "style.css", OUT / "style.css")
     shutil.copy(ROOT / "assets" / "favicon.svg", OUT / "favicon.svg")
+    shutil.copy(ROOT / "assets" / "feedback.js", OUT / "feedback.js")
     copy_images()
 
     posts = [load(p) for p in sorted((ROOT / "content" / "posts").glob("*.md"))]
@@ -314,7 +316,13 @@ def main():
 <section class="sec" id="services">
   <h2>服務項目</h2><div class="sub">SERVICES</div>
   <div class="svcs">{svcs}</div>
-</section>"""
+</section>
+<section class="sec fb" data-feedback="{esc(FEEDBACK_CSV)}" hidden>
+  <h2>學員回饋</h2><div class="sub">FEEDBACK</div>
+  <div class="fb-list"></div>
+  <p class="all"><a href="/feedback/">我也想留下回饋 →</a></p>
+</section>
+<script src="/feedback.js" defer></script>"""
     ld = {"@context": "https://schema.org", "@type": "Person", "name": NAME, "url": SITE_URL + "/",
           "jobTitle": "皮拉提斯與重訓教練", "sameAs": [u for u in (IG, FB, LINE) if u]}
     write("index.html", page(SITE_NAME, HOME_DESC, "/", home, ld=ld, full_title=HOME_TITLE))
@@ -370,6 +378,7 @@ def main():
     # 學員回饋
     fb_main = ('<article class="post"><h1 class="page-title">學員回饋</h1>'
         '<p class="lead">如果你上過我的課，很歡迎留下幾句話。你填的內容我會先看過，經過你同意才會公開在網站上，只顯示你填的稱呼。</p>'
+        f'<div class="fb" data-feedback="{esc(FEEDBACK_CSV)}" hidden><div class="fb-list"></div></div><script src="/feedback.js" defer></script>'
         f'<div class="form-wrap"><iframe src="{FEEDBACK_FORM}" title="學員回饋表單" loading="lazy">載入中…</iframe></div>'
         f'<p class="form-alt">表單沒有顯示的話，可以<a href="{FEEDBACK_FORM.replace("?embedded=true", "")}" target="_blank" rel="noopener">在新分頁開啟</a>。</p></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))

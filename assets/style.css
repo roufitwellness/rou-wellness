@@ -117,3 +117,11 @@ a.ser:hover{color:var(--accent);text-decoration:underline}
 .form-wrap iframe{display:block;width:100%;height:1100px;border:0}
 .form-alt{margin-top:14px;font-size:14px;color:var(--muted)}
 @media (max-width:760px){.form-wrap iframe{height:1300px}}
+
+.fb[hidden]{display:none}
+.fb-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:8px}
+.fb-card{margin:0;padding:24px;border-radius:20px;background:var(--tint);border:1px solid var(--line)}
+.fb-card blockquote{margin:0;font-size:15.5px;line-height:1.9;white-space:pre-line}
+.fb-card figcaption{margin-top:14px;font-size:13.5px;color:var(--muted)}
+.post .fb-list{grid-template-columns:1fr;margin:28px 0}
+@media (max-width:760px){.fb-list{grid-template-columns:1fr}}
