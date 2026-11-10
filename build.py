@@ -201,7 +201,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <body>
 <div class="wrap">
 <header class="top">
-  <a class="brand" href="/">{esc(SITE_NAME)}</a>
+  <a class="brand" href="/">Rou Wellness</a>
   <nav aria-label="主選單"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>
 </header>
 <main>
@@ -295,7 +295,6 @@ def main():
     )
     home = f"""<section class="hero">
   <div class="hero-text">
-    <div class="eyebrow">ROU WELLNESS</div>
     <h1>{NAME}</h1>
     <p class="slogan">{esc(SLOGAN)}</p>
     <p class="role">{esc(ROLE_LINE)}</p>
