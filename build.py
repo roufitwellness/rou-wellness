@@ -37,6 +37,7 @@ CATEGORIES = [
     {"slug": "metabolic", "name": "代謝健康", "desc": "血糖、胰島素、能量代謝、睡眠與壓力的相關知識。", "color": "#9B4022", "bg": "#F0DFC8"},
     {"slug": "nutrition", "name": "營養學", "desc": "巨量與微量營養素、食物來源與日常飲食的營養知識。", "color": "#8E4B58", "bg": "#F8E5E9"},
     {"slug": "rehab", "name": "復健相關知識", "desc": "關節力學、動作控制與身體功能的相關知識。", "color": "#514B35", "bg": "#FAF7E9"},
+    {"slug": "care", "name": "身體照顧", "desc": "淋巴引流與日常身體照顧的相關知識。", "color": "#6B5B53", "bg": "#F5F0E8"},
 ]
 # 連載系列。文章檔用 series 與 episode 兩個欄位指定。
 SERIES = [
