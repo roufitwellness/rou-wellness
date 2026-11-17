@@ -1,7 +1,7 @@
 title: 皮拉提斯一週練幾次比較好？
 date: 2026-11-13
 slug: pilates-how-often
-category: 皮拉提斯動作要點
+category: 運動觀念
 image: cover-pilates-how-often.jpg
 description: 一週要練幾次，沒有唯一的答案。這篇用一般運動建議當參考，聊聊怎麼找到你可以持續的頻率。
 ---

@@ -1,7 +1,7 @@
 title: 皮拉提斯和重訓，我該練哪一個？
 date: 2026-11-13
 slug: pilates-vs-strength
-category: 皮拉提斯動作要點
+category: 運動觀念
 image: cover-pilates-vs-strength.jpg
 description: 皮拉提斯和重訓練的重點不太一樣。這篇聊聊兩者的差別，以及怎麼依照自己的目標開始。
 ---

@@ -1,7 +1,7 @@
 title: 第一次上皮拉提斯，先知道這 5 件事
 date: 2026-11-02
 slug: first-pilates-5-things
-category: 皮拉提斯動作要點
+category: 運動觀念
 image: cover-pilates.png
 description: 第一次上皮拉提斯會緊張很正常。這篇整理上課前可以告訴老師什麼、怎麼準備，以及痠和痛怎麼分辨。
 ---

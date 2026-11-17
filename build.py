@@ -32,6 +32,7 @@ SERVICES = [
 DISCLAIMER = "本站內容為一般運動與健康促進資訊，不能取代醫療專業的評估與建議。"
 # 文章分類（對應粉專的五大知識系列與配色）。文章檔的 category 要寫跟 name 一樣的名稱。
 CATEGORIES = [
+    {"slug": "concepts", "name": "運動觀念", "desc": "重訓與皮拉提斯的基本觀念、怎麼開始，以及練習時常見的疑問。", "color": "#7A6A4F", "bg": "#F3ECDD"},
     {"slug": "strength", "name": "重訓動作要點", "desc": "重量訓練的動作重點、常見代償與安全注意事項。", "color": "#2F6F5E", "bg": "#EEF2EE"},
     {"slug": "pilates", "name": "皮拉提斯動作要點", "desc": "皮拉提斯的動作控制、呼吸，以及骨盆與脊椎的排列。", "color": "#4F7396", "bg": "#EDF1F5"},
     {"slug": "metabolic", "name": "代謝健康", "desc": "血糖、胰島素、能量代謝、睡眠與壓力的相關知識。", "color": "#9B4022", "bg": "#F0DFC8"},
