@@ -2,6 +2,7 @@ title: 第一次重訓，先知道這 5 件事
 date: 2026-11-13
 slug: first-strength-training-5-things
 category: 重訓動作要點
+image: cover-first-strength.jpg
 description: 第一次進健身房會緊張很正常。這篇整理開始重訓前，可以先知道的 5 件事。
 ---
 第一次走進重訓區，看到一堆器材，不知道從哪裡開始，這種感覺我很懂。先知道下面這 5 件事，會輕鬆一點。

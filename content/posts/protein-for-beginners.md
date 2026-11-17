@@ -2,6 +2,7 @@ title: 運動新手一天要吃多少蛋白質？
 date: 2026-11-13
 slug: protein-for-beginners
 category: 營養學
+image: cover-protein.jpg
 description: 開始運動後，很多人會想知道蛋白質要吃多少。這篇整理國際運動營養學會的建議，以及怎麼估算。
 ---
 開始運動之後，常有人問我：蛋白質到底要吃多少？

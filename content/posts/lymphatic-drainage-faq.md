@@ -2,6 +2,7 @@ title: 淋巴引流是什麼？常見問題整理
 date: 2026-11-13
 slug: lymphatic-drainage-faq
 category: 身體照顧
+image: cover-lymphatic.jpg
 description: 淋巴引流是一種輕柔的手技。這篇用問答整理淋巴引流是什麼、感覺如何，以及哪些情況建議先問醫師。
 ---
 **淋巴引流是什麼？**

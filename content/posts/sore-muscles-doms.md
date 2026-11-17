@@ -2,6 +2,7 @@ title: 練完隔天很痠，還要練嗎？
 date: 2026-11-13
 slug: sore-muscles-doms
 category: 重訓動作要點
+image: cover-doms.jpg
 description: 運動後隔天的痠痛很常見。這篇聊聊痠痛大約什麼時候出現、什麼時候消退，以及哪些情況要多留意。
 ---
 練完隔天，上下樓梯都在發抖，是不是很多人的經驗？

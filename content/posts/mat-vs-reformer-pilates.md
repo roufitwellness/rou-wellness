@@ -2,6 +2,7 @@ title: 墊上皮拉提斯和器械皮拉提斯，差在哪裡？
 date: 2026-11-13
 slug: mat-vs-reformer-pilates
 category: 皮拉提斯動作要點
+image: cover-mat-vs-reformer.jpg
 description: 墊上用自己的體重練習，器械會用到彈簧。這篇聊聊兩者的差別，以及剛開始怎麼選。
 ---
 第一次接觸皮拉提斯，常會看到「墊上」和「器械」兩種課。很多人會問我，要從哪一個開始。
