@@ -2,6 +2,7 @@ title: 女生重訓，和男生有什麼不一樣？
 date: 2026-11-17
 slug: women-strength-training-differences
 category: 運動觀念
+image: cover-women-strength.jpg
 description: 女生和男生在重訓上有哪些相同、哪些不同？這篇整理兩項 2025 年的研究，說明它們的結果與限制。
 ---
 很多女生會問我：想重訓，但女生和男生的訓練，是不是不一樣？
