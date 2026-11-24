@@ -1,10 +1,7 @@
 (function(){
-  var KEY='rou-booking-code';
-  function load(){try{return localStorage.getItem(KEY)||''}catch(e){return ''}}
-  function save(v){try{v?localStorage.setItem(KEY,v):localStorage.removeItem(KEY)}catch(e){}}
   function $(id){return document.getElementById(id)}
   function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
-  function show(id){['bk-gate','bk-pick','bk-done','bk-cancel'].forEach(function(x){$(x).hidden=(x!==id)});}
+  function show(id){['bk-pick','bk-done','bk-cancel'].forEach(function(x){$(x).hidden=(x!==id)});}
   function err(r){return r.json().then(function(j){return {ok:r.ok&&j.ok,j:j}},function(){return {ok:false,j:{}}})}
   var FAIL='連線失敗，請稍後再試。';
 
@@ -32,18 +29,17 @@
     return;
   }
 
-  var code='',slots=[],filter='',chosen=null;
-  var gate=$('bk-gate'),gmsg=$('bk-gate-msg'),list=$('bk-slots'),form=$('bk-form'),fmsg=$('bk-msg');
+  var slots=[],filter='',chosen=null;
+  var list=$('bk-slots'),form=$('bk-form'),fmsg=$('bk-msg');
 
-  function fetchSlots(c){
-    var btn=gate.querySelector('button');btn.disabled=true;gmsg.textContent='';
-    return fetch('/api/booking/slots',{headers:{'x-booking-code':c}}).then(err).then(function(x){
-      btn.disabled=false;
-      if(!x.ok){save('');show('bk-gate');gmsg.textContent=x.j.error||FAIL;return}
-      code=c;save(c);slots=x.j.items||[];
+  function fetchSlots(){
+    show('bk-pick');
+    return fetch('/api/booking/slots').then(err).then(function(x){
+      if(!x.ok){list.textContent='';list.appendChild(el('p','fb-err',x.j.error||FAIL));return}
+      slots=x.j.items||[];
       $('bk-rule').textContent='開課前 '+x.j.bookBeforeHours+' 小時停止線上預約；開課前 '+x.j.cancelBeforeHours+' 小時以前可以自己取消。';
-      show('bk-pick');render();
-    }).catch(function(){btn.disabled=false;show('bk-gate');gmsg.textContent=FAIL});
+      render();
+    }).catch(function(){list.textContent='';list.appendChild(el('p','fb-err',FAIL))});
   }
 
   function render(){
@@ -79,38 +75,32 @@
     setTimeout(function(){form.name.focus({preventScroll:true})},300);
   }
 
-  gate.addEventListener('submit',function(e){
-    e.preventDefault();var c=gate.code.value.trim();
-    if(!c){gmsg.textContent='請輸入預約碼';return}
-    fetchSlots(c);
-  });
-  $('bk-switch').addEventListener('click',function(){save('');code='';chosen=null;form.hidden=true;gate.code.value='';show('bk-gate')});
 
   form.addEventListener('submit',function(e){
     e.preventDefault();if(!chosen)return;
     var btn=form.querySelector('button[type=submit]');btn.disabled=true;fmsg.textContent='';
-    fetch('/api/booking',{method:'POST',headers:{'content-type':'application/json','x-booking-code':code},body:JSON.stringify({
-      slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value,hp:form.hp.value})})
+    fetch('/api/booking',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      slot_id:chosen.id,name:form.name.value,email:form.email.value,contact:form.contact.value,note:form.note.value,hp:form.hp.value})})
     .then(err).then(function(x){
       btn.disabled=false;
       if(x.ok){
-        try{localStorage.setItem('rou-booking-name',form.name.value);localStorage.setItem('rou-booking-contact',form.contact.value)}catch(e){}
+        try{localStorage.setItem('rou-booking-name',form.name.value);localStorage.setItem('rou-booking-email',form.email.value);localStorage.setItem('rou-booking-contact',form.contact.value)}catch(e){}
         var d=x.j,link=location.origin+'/booking/?cancel='+encodeURIComponent(d.token);
         $('bk-done-what').textContent=d.service+'　'+d.when;
+        $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'，裡面也有取消連結。沒收到的話請看一下垃圾郵件匣。':'';
         var a=$('bk-done-link');a.href=link;a.textContent=link;
         show('bk-done');window.scrollTo(0,0);return;
       }
       fmsg.textContent=x.j.error||FAIL;
-      if(x.j.full||x.j.badCode){chosen=null;form.hidden=true;fetchSlots(code)}
+      if(x.j.full){chosen=null;form.hidden=true;fetchSlots()}
     }).catch(function(){btn.disabled=false;fmsg.textContent=FAIL});
   });
   $('bk-copy').addEventListener('click',function(){
     var link=$('bk-done-link').href,b=this;
     (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject()).then(function(){b.textContent='已複製'},function(){b.textContent='請長按連結複製'});
   });
-  $('bk-again').addEventListener('click',function(){chosen=null;form.hidden=true;form.note.value='';fetchSlots(code)});
+  $('bk-again').addEventListener('click',function(){chosen=null;form.hidden=true;form.note.value='';fetchSlots()});
 
-  try{form.name.value=localStorage.getItem('rou-booking-name')||'';form.contact.value=localStorage.getItem('rou-booking-contact')||''}catch(e){}
-  var saved=load();
-  if(saved){gate.code.value=saved;fetchSlots(saved)}else show('bk-gate');
+  try{form.name.value=localStorage.getItem('rou-booking-name')||'';form.email.value=localStorage.getItem('rou-booking-email')||'';form.contact.value=localStorage.getItem('rou-booking-contact')||''}catch(e){}
+  fetchSlots();
 })();
