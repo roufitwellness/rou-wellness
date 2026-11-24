@@ -165,7 +165,7 @@ def closing():
         '<h2>想了解適合你的課程？</h2>'
         '<p>Instagram 有不一樣的內容，歡迎追蹤。</p>'
         f'<div class="closing-btns">{btns}</div>'
-        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/feedback/">學員回饋</a></nav>'
+        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/feedback/">學員回饋</a><a href="/booking/">學員預約</a></nav>'
         '</div></section>'
     )
 
@@ -204,7 +204,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/">Rou Wellness</a>
-  <nav aria-label="主選單"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>
+  <nav aria-label="主選單"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/booking/">預約</a></nav>
 </header>
 <main>
 {main}
@@ -272,6 +272,7 @@ def main():
     shutil.copy(ROOT / "assets" / "style.css", OUT / "style.css")
     shutil.copy(ROOT / "assets" / "favicon.svg", OUT / "favicon.svg")
     shutil.copy(ROOT / "assets" / "feedback.js", OUT / "feedback.js")
+    shutil.copy(ROOT / "assets" / "booking.js", OUT / "booking.js")
     copy_images()
 
     posts = [load(p) for p in sorted((ROOT / "content" / "posts").glob("*.md"))]
@@ -386,6 +387,34 @@ def main():
         '<p id="fb-thanks" class="lead" hidden>謝謝你的回饋！</p>'
         '<script src="/feedback.js" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
+
+    # 學員預約（只限現有學員，需要老師給的預約碼）
+    bk_main = ('<article class="post"><h1 class="page-title">學員預約</h1>'
+        '<p class="lead">目前只開放現有學員線上預約。預約碼請向柔柔老師索取；還不是學員的話，歡迎先傳訊息聊聊。</p>'
+        '<form id="bk-gate" class="bk-box bk-gate" novalidate hidden>'
+        '<label>預約碼<input name="code" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>'
+        '<button type="submit" class="btn">查看可預約時段</button><p id="bk-gate-msg" class="fb-err" role="alert"></p></form>'
+        '<div id="bk-pick" class="bk-box" hidden>'
+        '<div class="bk-bar"><p id="bk-rule" class="bk-rule"></p><button type="button" id="bk-switch" class="linkish">換一個預約碼</button></div>'
+        '<nav id="bk-filter" class="filters" aria-label="服務篩選"></nav>'
+        '<div id="bk-slots" aria-live="polite"></div>'
+        '<form id="bk-form" class="bk-form" novalidate hidden><h3>填寫預約資料</h3><p id="bk-chosen" class="bk-chosen"></p>'
+        '<label>姓名<input name="name" maxlength="30" autocomplete="name" required></label>'
+        '<label>聯絡方式<span>（電話、LINE 或 IG 帳號，有變動時老師會用這個聯絡你）</span><input name="contact" maxlength="60" required></label>'
+        '<label>想讓老師知道的事<span>（選填，例如最近哪裡不舒服、想加強的地方）</span><textarea name="note" rows="3" maxlength="300"></textarea></label>'
+        '<input name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">'
+        '<button type="submit" class="btn">確認預約</button><p id="bk-msg" class="fb-err" role="alert"></p></form>'
+        '</div>'
+        '<div id="bk-done" class="bk-box bk-done" hidden role="status"><h2>預約完成，期待見到你！</h2>'
+        '<p id="bk-done-what" class="bk-chosen"></p>'
+        '<p class="lead">如果之後需要取消，請用下面這個連結。建議截圖或複製起來保存：</p>'
+        '<a id="bk-done-link" class="bk-link" href="#"></a>'
+        '<div class="btns"><button type="button" id="bk-copy" class="btn ghost">複製取消連結</button><button type="button" id="bk-again" class="btn ghost">再預約其他時段</button></div></div>'
+        '<div id="bk-cancel" class="bk-box bk-done" hidden><h2>取消預約</h2><p id="bk-cancel-info">讀取中…</p>'
+        '<p id="bk-cancel-msg" class="lead" role="status"></p><button type="button" id="bk-cancel-btn" class="btn" hidden>確定取消這堂課</button></div>'
+        '<noscript><p class="lead">預約功能需要開啟 JavaScript。</p></noscript>'
+        '<script src="/booking.js" defer></script></article>')
+    write("booking/index.html", page("學員預約", "柔柔老師的現有學員，可以在這裡線上預約一對一與小團體皮拉提斯課程。", "/booking/", bk_main))
 
     # 404
     write("404.html", page("找不到頁面", "找不到這個頁面。", "/404.html",
