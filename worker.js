@@ -1,4 +1,4 @@
-// Cloudflare Worker：學員回饋（先存「待審核」，Rou 確認後才公開）與學員預約（老師開時段、學員自己選時段，並寄確認信）。其他網址交給靜態網站。
+// Cloudflare Worker：學員回饋（先存「待審核」，Rou 確認後才公開）與學員預約（老師開時段，學員用 Google 或 Email 登入後選時段，並寄確認信）。其他網址交給靜態網站。
 const SCHEMA = `CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -21,6 +21,7 @@ const BOOKING_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS bookings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slot_id INTEGER NOT NULL,
+  user_id INTEGER,
   name TEXT NOT NULL,
   email TEXT NOT NULL DEFAULT '',
   contact TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,24 @@ const BOOKING_SCHEMA = [
   ip_hash TEXT
 )`,
   `CREATE INDEX IF NOT EXISTS bookings_slot ON bookings (slot_id, status)`,
+  `CREATE INDEX IF NOT EXISTS bookings_user ON bookings (user_id, status)`,
+  `CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  last_login TEXT
+)`,
+  `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS login_links (
+  token_hash TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  ip_hash TEXT
+)`,
 ];
 let ready = null;
 async function init(env) {
@@ -207,6 +226,193 @@ function mailCancelled(origin, b, byTeacher) {
   };
 }
 
+// ---------------- 學員帳號（Google 登入／Email 登入連結）----------------
+const SESSION_DAYS = 60;
+const LINK_MINUTES = 15;
+const COOKIE = "rou_s";
+// 平常就是 Google 的正式網址；測試時可以用環境變數換成假的伺服器
+const googleUrls = (env) => ({
+  auth: env.GOOGLE_AUTH_URL || "https://accounts.google.com/o/oauth2/v2/auth",
+  token: env.GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token",
+  userinfo: env.GOOGLE_USERINFO_URL || "https://openidconnect.googleapis.com/v1/userinfo",
+});
+const googleOn = (env) => Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+const mailOn = (env) => Boolean(env.MAIL_URL && env.MAIL_SECRET);
+
+function getCookie(req, name) {
+  const m = (req.headers.get("cookie") || "").match(new RegExp("(?:^|;\\s*)" + name + "=([^;]+)"));
+  return m ? m[1] : "";
+}
+function cookie(name, value, maxAge, secure) {
+  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
+}
+const isSecure = (url) => url.protocol === "https:";
+
+async function currentUser(req, env) {
+  const t = getCookie(req, COOKIE);
+  if (!t || t.length > 60) return null;
+  await init(env);
+  return env.DB.prepare(
+    "SELECT u.id, u.email, u.name, u.phone FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?"
+  ).bind(await sha256("s:" + t), new Date().toISOString()).first();
+}
+
+async function startSession(env, email, name, url, redirect = "/booking/") {
+  email = email.trim().toLowerCase();
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO users (email, name, phone, created_at, last_login) VALUES (?, ?, '', ?, ?)
+     ON CONFLICT(email) DO UPDATE SET last_login = excluded.last_login, name = CASE WHEN users.name = '' THEN excluded.name ELSE users.name END`
+  ).bind(email, (name || "").trim().slice(0, 30), now, now).run();
+  const u = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  const t = randomToken();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
+      .bind(await sha256("s:" + t), u.id, new Date(Date.now() + SESSION_DAYS * 86400 * 1000).toISOString()),
+    env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
+    env.DB.prepare("DELETE FROM login_links WHERE expires_at < ?").bind(now),
+  ]);
+  const h = new Headers({ location: redirect, "cache-control": "no-store" });
+  h.append("set-cookie", cookie(COOKIE, t, SESSION_DAYS * 86400, isSecure(url)));
+  h.append("set-cookie", cookie("rou_g", "", 0, isSecure(url)));
+  return new Response(null, { status: 303, headers: h });
+}
+
+const loginFail = (reason) => new Response(null, { status: 303, headers: { location: "/booking/?login=" + reason, "cache-control": "no-store" } });
+
+// Google 登入：先導到 Google，回來時用 state cookie 確認是同一個人發起的
+function googleStart(env, url) {
+  if (!googleOn(env)) return loginFail("off");
+  const state = randomToken();
+  const q = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID, redirect_uri: url.origin + "/auth/google/callback",
+    response_type: "code", scope: "openid email profile", state, prompt: "select_account",
+  });
+  return new Response(null, { status: 302, headers: {
+    location: googleUrls(env).auth + "?" + q, "cache-control": "no-store",
+    "set-cookie": cookie("rou_g", state, 600, isSecure(url)),
+  } });
+}
+
+async function googleCallback(req, env, url) {
+  if (!googleOn(env)) return loginFail("off");
+  const state = url.searchParams.get("state") || "";
+  const saved = getCookie(req, "rou_g");
+  const code = url.searchParams.get("code");
+  if (!code || !saved || !safeEqual(state, saved)) return loginFail("fail");
+  const g = googleUrls(env);
+  const tr = await fetch(g.token, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({
+    code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: url.origin + "/auth/google/callback", grant_type: "authorization_code",
+  }) });
+  if (!tr.ok) return loginFail("fail");
+  const tok = await tr.json();
+  const ur = await fetch(g.userinfo, { headers: { authorization: "Bearer " + tok.access_token } });
+  if (!ur.ok) return loginFail("fail");
+  const info = await ur.json();
+  if (!info.email || info.email_verified === false || info.email_verified === "false") return loginFail("fail");
+  await init(env);
+  return startSession(env, info.email, info.name || "", url);
+}
+
+async function verifyTurnstile(env, token, ip) {
+  if (!env.TURNSTILE_SECRET) return true; // 還沒設定就先不檢查
+  if (!token) return false;
+  try {
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST", body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
+    });
+    const d = await r.json();
+    return Boolean(d.success);
+  } catch { return false; }
+}
+
+// Email 登入連結：寄一封有登入連結的信，15 分鐘內有效、只能用一次
+async function emailLinkRequest(req, env, ctx, url) {
+  if (!mailOn(env)) return json({ ok: false, error: "Email 登入還沒有開放，請用 Google 登入。" }, 503);
+  let d; try { d = await req.json(); } catch { return json({ ok: false, error: "格式不正確" }, 400); }
+  const email = String(d.email || "").trim().toLowerCase().slice(0, 100);
+  if (!EMAIL_RE.test(email)) return json({ ok: false, error: "請填寫正確的 Email" }, 400);
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  if (!(await verifyTurnstile(env, d.turnstile, ip))) return json({ ok: false, error: "驗證沒有通過，請重新整理頁面再試一次。", retry: true }, 403);
+  await init(env);
+  const ipHash = await sha256("rou:" + ip);
+  const hour = new Date(Date.now() - 3600 * 1000).toISOString();
+  const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_links WHERE ip_hash = ? AND created_at > ?").bind(ipHash, hour).first();
+  const b = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_links WHERE email = ? AND created_at > ?").bind(email, hour).first();
+  if ((a && a.n >= 6) || (b && b.n >= 3)) return json({ ok: false, error: "寄送太頻繁，請稍後再試，或先看看信箱裡有沒有之前的登入信。" }, 429);
+  const t = randomToken();
+  await env.DB.prepare("INSERT INTO login_links (token_hash, email, created_at, expires_at, ip_hash) VALUES (?, ?, ?, ?, ?)")
+    .bind(await sha256("l:" + t), email, new Date().toISOString(), new Date(Date.now() + LINK_MINUTES * 60 * 1000).toISOString(), ipHash).run();
+  sendMail(env, ctx, {
+    to: email, subject: "Rou Wellness 預約登入連結",
+    body: `你好，\n\n點下面的連結就能登入預約系統（${LINK_MINUTES} 分鐘內有效，只能使用一次）：\n\n${url.origin}/auth/email?t=${encodeURIComponent(t)}\n\n如果不是你本人要求的，不用理會這封信。${SIGN}`,
+  });
+  return json({ ok: true });
+}
+
+// 點信裡的連結會先看到一個「登入」按鈕，按下去才真的登入（避免信箱的安全掃描先把連結用掉）
+function emailLinkPage(url) {
+  const t = url.searchParams.get("t") || "";
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>登入預約系統｜Rou Wellness</title>
+<style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;display:grid;place-items:center;min-height:100vh}main{max-width:360px;padding:24px 16px;text-align:center}h1{font-size:22px;font-weight:500}button{font:inherit;padding:11px 32px;border-radius:999px;border:0;background:#A25D69;color:#fff;cursor:pointer}</style></head>
+<body><main><h1>登入 Rou Wellness 預約系統</h1><form method="post" action="/auth/email"><input type="hidden" name="t" value="${esc(t)}"><button type="submit">登入</button></form></main></body></html>`;
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex", "referrer-policy": "no-referrer" } });
+}
+
+async function emailLinkLogin(req, env, url) {
+  let t = "";
+  try { t = String((await req.formData()).get("t") || ""); } catch {}
+  if (!t || t.length > 60) return loginFail("expired");
+  await init(env);
+  const h = await sha256("l:" + t);
+  const r = await env.DB.prepare("UPDATE login_links SET used = 1 WHERE token_hash = ? AND used = 0 AND expires_at > ? RETURNING email")
+    .bind(h, new Date().toISOString()).first();
+  if (!r) return loginFail("expired");
+  return startSession(env, r.email, "", url);
+}
+
+async function logout(req, env, url) {
+  const t = getCookie(req, COOKIE);
+  if (t) { await init(env); await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256("s:" + t)).run(); }
+  return json({ ok: true }, 200, { "set-cookie": cookie(COOKIE, "", 0, isSecure(url)) });
+}
+
+async function me(req, env) {
+  const u = await currentUser(req, env);
+  return json({
+    user: u ? { name: u.name, email: u.email, phone: u.phone } : null,
+    google: googleOn(env), emailLogin: mailOn(env), turnstileSiteKey: env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY || "" : "",
+  }, 200, { "cache-control": "no-store" });
+}
+
+async function myBookings(env, user) {
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.status, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id
+     WHERE b.user_id = ? AND b.status = 'booked' AND s.starts_at > ? ORDER BY s.starts_at LIMIT 50`
+  ).bind(user.id, twNow()).all();
+  const cut = twNow(CANCEL_BEFORE_HOURS);
+  return json({ ok: true, items: (results || []).map((b) => ({
+    id: b.id, service: b.service, when: zhWhen(b.starts_at, b.minutes), canCancel: b.starts_at > cut,
+  })) }, 200, { "cache-control": "no-store" });
+}
+
+async function myCancel(req, env, ctx, url, user) {
+  let d; try { d = await req.json(); } catch { return json({ ok: false }, 400); }
+  const b = await env.DB.prepare(
+    "SELECT b.id, b.name, b.email, b.status, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.id = ? AND b.user_id = ?"
+  ).bind(Number(d.id), user.id).first();
+  if (!b) return json({ ok: false, error: "找不到這筆預約。" }, 404);
+  return doCancel(env, ctx, url, b);
+}
+
+// 登入後的 API 只接受從本站送出的請求
+function sameSite(req, url) {
+  if (req.headers.get("x-requested-with") !== "rou") return false;
+  const o = req.headers.get("origin");
+  return !o || new URL(o).host === url.host;
+}
+
 async function listSlots(env) {
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.service, s.starts_at, s.minutes, s.capacity,
@@ -220,40 +426,34 @@ async function listSlots(env) {
   return json({ ok: true, items, bookBeforeHours: BOOK_BEFORE_HOURS, cancelBeforeHours: CANCEL_BEFORE_HOURS }, 200, { "cache-control": "no-store" });
 }
 
-async function book(req, env, ctx, url) {
-  await init(env);
-  const ipHash = await sha256("rou:" + (req.headers.get("cf-connecting-ip") || "unknown"));
+async function book(req, env, ctx, url, user) {
   let d; try { d = await req.json(); } catch { return json({ ok: false, error: "格式不正確" }, 400); }
-  if (d.hp) return json({ ok: false, error: "送出失敗，請稍後再試。" }, 400);
   const slotId = Number(d.slot_id);
   const name = String(d.name || "").trim().slice(0, 30);
-  const email = String(d.email || "").trim().slice(0, 100);
   const contact = String(d.contact || "").trim().slice(0, 60);
   const note = String(d.note || "").trim().slice(0, 300);
+  const email = user.email;
   if (!Number.isInteger(slotId)) return json({ ok: false, error: "請先選擇時段" }, 400);
   if (!name) return json({ ok: false, error: "請填寫姓名" }, 400);
-  if (!EMAIL_RE.test(email)) return json({ ok: false, error: "請填寫正確的 Email，確認信會寄到這裡" }, 400);
-  const since = new Date(Date.now() - 3600 * 1000).toISOString();
-  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM bookings WHERE ip_hash = ? AND created_at > ?").bind(ipHash, since).first();
-  if (recent && recent.n >= 6) return json({ ok: false, error: "預約太頻繁，請稍後再試" }, 429);
-  const day = new Date(Date.now() - 86400 * 1000).toISOString();
-  const perMail = await env.DB.prepare("SELECT COUNT(*) AS n FROM bookings WHERE lower(email) = lower(?) AND created_at > ?").bind(email, day).first();
-  if (perMail && perMail.n >= 8) return json({ ok: false, error: "這個 Email 今天預約太多次了，請直接傳訊息給老師" }, 429);
-  const dup = await env.DB.prepare("SELECT id FROM bookings WHERE slot_id = ? AND status = 'booked' AND lower(email) = lower(?)").bind(slotId, email).first();
+  const since = new Date(Date.now() - 86400 * 1000).toISOString();
+  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM bookings WHERE user_id = ? AND created_at > ?").bind(user.id, since).first();
+  if (recent && recent.n >= 10) return json({ ok: false, error: "今天預約太多次了，請直接傳訊息給老師" }, 429);
+  const dup = await env.DB.prepare("SELECT id FROM bookings WHERE slot_id = ? AND status = 'booked' AND user_id = ?").bind(slotId, user.id).first();
   if (dup) return json({ ok: false, error: "你已經預約過這個時段了" }, 409);
   const token = randomToken();
   // 一個指令內同時檢查「時段開放、還沒截止、還有名額」，避免兩個人同時搶到最後一個位子
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (slot_id, name, email, contact, note, status, token, created_at, ip_hash)
-     SELECT s.id, ?, ?, ?, ?, 'booked', ?, ?, ? FROM slots s
+    `INSERT INTO bookings (slot_id, user_id, name, email, contact, note, status, token, created_at)
+     SELECT s.id, ?, ?, ?, ?, ?, 'booked', ?, ? FROM slots s
      WHERE s.id = ? AND s.status = 'open' AND s.starts_at > ?
        AND (SELECT COUNT(*) FROM bookings b WHERE b.slot_id = s.id AND b.status = 'booked') < s.capacity`
-  ).bind(name, email, contact, note, token, new Date().toISOString(), ipHash, slotId, twNow(BOOK_BEFORE_HOURS)).run();
+  ).bind(user.id, name, email, contact, note, token, new Date().toISOString(), slotId, twNow(BOOK_BEFORE_HOURS)).run();
   if (!r.meta || r.meta.changes !== 1) return json({ ok: false, error: "這個時段剛好額滿或已關閉，請選其他時段。", full: true }, 409);
+  await env.DB.prepare("UPDATE users SET name = ?, phone = ? WHERE id = ?").bind(name, contact, user.id).run();
   const s = await env.DB.prepare("SELECT service, starts_at, minutes FROM slots WHERE id = ?").bind(slotId).first();
   const when = zhWhen(s.starts_at, s.minutes);
   sendMail(env, ctx, mailBooked(url.origin, { token, service: s.service, when, name, email, contact, note }));
-  return json({ ok: true, token, service: s.service, when, name, email, mail: Boolean(env.MAIL_URL && env.MAIL_SECRET) });
+  return json({ ok: true, service: s.service, when, email, mail: mailOn(env) });
 }
 
 async function bookingByToken(env, token) {
@@ -275,6 +475,10 @@ async function cancelBooking(req, env, ctx, url) {
   let d; try { d = await req.json(); } catch { return json({ ok: false, error: "格式不正確" }, 400); }
   const b = await bookingByToken(env, String(d.token || ""));
   if (!b) return json({ ok: false, error: "找不到這筆預約。" }, 404);
+  return doCancel(env, ctx, url, b);
+}
+
+async function doCancel(env, ctx, url, b) {
   if (b.status !== "booked") return json({ ok: true });
   if (b.starts_at <= twNow(CANCEL_BEFORE_HOURS)) return json({ ok: false, error: `開課前 ${CANCEL_BEFORE_HOURS} 小時內無法線上取消，請直接傳訊息給老師。` }, 409);
   const r = await env.DB.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'booked'").bind(new Date().toISOString(), b.id).run();
@@ -316,9 +520,14 @@ ${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "b
 <div class="btns">${toggle}<button class="del" data-a="delete" data-id="${s.id}" data-n="${active.length}">刪除</button></div></article>`;
   }).join("") || `<p class="hint">${past ? "沒有過去的時段。" : "還沒有開放的時段，用上面的表單新增吧。"}</p>`;
   const svcOpts = Object.entries(SERVICES).map(([n, c]) => `<option value="${esc(n)}" data-cap="${c}">${esc(n)}</option>`).join("");
-  const mailHint = env.MAIL_URL && env.MAIL_SECRET ? "" : '<p class="warn">⚠️ 還沒有設定寄信（MAIL_URL、MAIL_SECRET），學員預約後不會收到確認信。</p>';
+  const warns = [];
+  if (!mailOn(env)) warns.push("還沒有設定寄信（MAIL_URL、MAIL_SECRET）：學員收不到確認信，也不能用 Email 登入。");
+  if (!googleOn(env)) warns.push("還沒有設定 Google 登入（GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET）。");
+  if (!mailOn(env) && !googleOn(env)) warns.push("目前沒有任何登入方式，學員無法預約。");
+  if (!env.TURNSTILE_SECRET || !env.TURNSTILE_SITE_KEY) warns.push("還沒有設定 Turnstile 機器人驗證（TURNSTILE_SITE_KEY、TURNSTILE_SECRET）。");
+  const mailHint = warns.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join("");
   const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>預約管理</title>
-<style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:680px;margin:0 auto;padding:24px 16px 60px}${NAV_CSS}h1{font-size:22px;margin:0 0 4px}.hint{color:#736861;font-size:14px;margin:0 0 20px}.warn{background:#FCEBDD;border-radius:12px;padding:8px 14px;font-size:14px}
+<style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:680px;margin:0 auto;padding:24px 16px 60px}${NAV_CSS}h1{font-size:22px;margin:0 0 4px}.hint{color:#736861;font-size:14px;margin:0 0 20px}.warn{background:#FCEBDD;border-radius:12px;padding:8px 14px;font-size:14px;margin:0 0 8px}
 form.add{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:16px 18px;margin:0 0 24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}form.add h2{grid-column:1/-1;font-size:17px;margin:0}form.add label{display:grid;gap:4px;font-size:14px;color:#736861}form.add .full{grid-column:1/-1}
 input,select{font:inherit;color:#554F49;background:#fff;border:1px solid #EBD7D9;border-radius:10px;padding:7px 10px;min-width:0}
 .tabs{display:flex;gap:14px;font-size:14px;margin:0 0 8px}.tabs a{color:#736861}.tabs a.on{color:#A25D69;font-weight:500}
@@ -327,7 +536,7 @@ article{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px
 ul{list-style:none;margin:8px 0 0;padding:0}li{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px dashed #EBD7D9;word-break:break-word}li.b-cancelled{color:#A99D96}li a{color:#A25D69}.x{font-size:13px}.note{font-size:14px;color:#736861;white-space:pre-wrap}
 .btns{display:flex;gap:10px;margin-top:10px}button{font:inherit;font-size:14px;padding:5px 14px;border-radius:999px;border:1px solid #A25D69;background:#fff;color:#A25D69;cursor:pointer;white-space:nowrap}button.go{background:#A25D69;color:#fff}button.del{border-color:#C9B8B0;color:#736861}
 @media (max-width:520px){form.add{grid-template-columns:1fr}}</style></head>
-<body><main>${ADMIN_NAV("bk")}<h1>學員預約管理</h1><p class="hint">在這裡開放時段，學員就能在 <a href="/booking/">/booking/</a> 頁面選時段，預約和取消都會寄信通知學員和你。開課前 ${BOOK_BEFORE_HOURS} 小時停止線上預約，${CANCEL_BEFORE_HOURS} 小時內學員不能自行取消。</p>${mailHint}
+<body><main>${ADMIN_NAV("bk")}<h1>學員預約管理</h1><p class="hint">在這裡開放時段，學員登入後就能在 <a href="/booking/">/booking/</a> 頁面選時段（這個網址沒有放在網站選單上，請自己傳給學員），預約和取消都會寄信通知學員和你。開課前 ${BOOK_BEFORE_HOURS} 小時停止線上預約，${CANCEL_BEFORE_HOURS} 小時內學員不能自行取消。</p>${mailHint}
 <form class="add" id="add"><h2>新增時段</h2>
 <label class="full">服務<select name="service">${svcOpts}</select></label>
 <label>日期<input type="date" name="date" required min="${today}"></label>
@@ -418,12 +627,22 @@ export default {
         if (req.method === "GET") return await listApproved(env);
         return json({ ok: false }, 405);
       }
-      if (p === "/api/booking/slots" || p === "/api/booking") {
+      if (p.startsWith("/auth/") || p === "/api/me" || p === "/api/logout" || p === "/api/login-link" || p.startsWith("/api/my/") || p === "/api/booking/slots" || p === "/api/booking") {
         if (!env.DB) return json({ ok: false, error: "線上預約還沒有開放。" }, 503);
-        if (req.method !== (p === "/api/booking" ? "POST" : "GET")) return json({ ok: false }, 405);
-        if (p === "/api/booking") return await book(req, env, ctx, url);
-        await init(env);
-        return await listSlots(env);
+        if (p === "/auth/google") return googleStart(env, url);
+        if (p === "/auth/google/callback") return await googleCallback(req, env, url);
+        if (p === "/auth/email") return req.method === "POST" ? await emailLinkLogin(req, env, url) : emailLinkPage(url);
+        if (p === "/api/me") return await me(req, env);
+        if (p === "/api/booking/slots") { await init(env); return await listSlots(env); }
+        if (req.method !== "GET" && !sameSite(req, url)) return json({ ok: false }, 403);
+        if (p === "/api/login-link") return req.method === "POST" ? await emailLinkRequest(req, env, ctx, url) : json({ ok: false }, 405);
+        if (p === "/api/logout") return req.method === "POST" ? await logout(req, env, url) : json({ ok: false }, 405);
+        const user = await currentUser(req, env);
+        if (!user) return json({ ok: false, error: "請先登入。", login: true }, 401);
+        if (p === "/api/booking") return req.method === "POST" ? await book(req, env, ctx, url, user) : json({ ok: false }, 405);
+        if (p === "/api/my/bookings") return await myBookings(env, user);
+        if (p === "/api/my/cancel") return req.method === "POST" ? await myCancel(req, env, ctx, url, user) : json({ ok: false }, 405);
+        return json({ ok: false }, 404);
       }
       if (p === "/api/booking/cancel") {
         if (!env.DB) return json({ ok: false, error: "線上預約還沒有開放。" }, 503);

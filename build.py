@@ -165,12 +165,12 @@ def closing():
         '<h2>想了解適合你的課程？</h2>'
         '<p>Instagram 有不一樣的內容，歡迎追蹤。</p>'
         f'<div class="closing-btns">{btns}</div>'
-        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/feedback/">學員回饋</a><a href="/booking/">學員預約</a></nav>'
+        '<nav class="closing-nav" aria-label="網站連結"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/feedback/">學員回饋</a></nav>'
         '</div></section>'
     )
 
 
-def page(title, desc, path, main, kind="website", ld=None, full_title=None):
+def page(title, desc, path, main, kind="website", ld=None, full_title=None, noindex=False):
     url = SITE_URL + path
     t = full_title or f"{title}｜{SITE_NAME}"
     ld_tag = ""
@@ -183,6 +183,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{esc(t)}</title>
 <meta name="description" content="{esc(desc)}">
+{'<meta name="robots" content="noindex,nofollow">' if noindex else ""}
 <link rel="canonical" href="{url}">
 <meta property="og:type" content="{kind}">
 <meta property="og:site_name" content="{esc(SITE_NAME)}">
@@ -204,7 +205,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None):
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/">Rou Wellness</a>
-  <nav aria-label="主選單"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a><a href="/booking/">預約</a></nav>
+  <nav aria-label="主選單"><a href="/posts/">文章</a><a href="/#services">服務</a><a href="/about/">關於</a></nav>
 </header>
 <main>
 {main}
@@ -388,31 +389,46 @@ def main():
         '<script src="/feedback.js" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
 
-    # 學員預約（老師在 /admin/booking 開時段，學員自己選，預約後寄確認信）
+    # 學員預約：老師在 /admin/booking 開時段，學員登入（Google 或 Email 連結）後選時段，預約後寄確認信。
+    # 這頁不放在選單、不給搜尋引擎收錄，網址由老師自己傳給學員。
     bk_main = ('<article class="post"><h1 class="page-title">學員預約</h1>'
-        '<p class="lead">選一個時段、填好資料就完成預約，確認信會寄到你的信箱。</p>'
-        '<div id="bk-pick" class="bk-box">'
-        '<p id="bk-rule" class="bk-rule"></p>'
+        '<div id="bk-main">'
+        '<section id="bk-login" class="bk-box bk-card" hidden><h2>登入後預約</h2>'
+        '<p class="lead">第一次使用也是直接登入就好，不用另外註冊。</p>'
+        '<p id="bk-login-msg" class="fb-err" role="alert"></p>'
+        '<a id="bk-google" class="btn bk-google" href="/auth/google" hidden>'
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h5.9a5 5 0 0 1-2.2 3.3v2.7h3.6c2.1-1.9 3.3-4.8 3.3-8z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3 .6 4.2 1.6l3.1-3.1A11 11 0 0 0 2.1 7.1l3.7 2.8C6.7 7.3 9.1 5.4 12 5.4z"/></svg>'
+        '用 Google 登入</a>'
+        '<p id="bk-or" class="bk-or" hidden><span>或用 Email 收登入連結</span></p>'
+        '<form id="bk-email-form" class="bk-form bk-plain" novalidate hidden>'
+        '<label>Email<input name="email" type="email" maxlength="100" autocomplete="email" inputmode="email" required></label>'
+        '<div id="bk-ts"></div>'
+        '<button type="submit" class="btn ghost">寄登入連結給我</button></form>'
+        '<div id="bk-sent" hidden role="status"><p>登入連結已經寄到 <b id="bk-sent-to"></b>，15 分鐘內有效。請到信箱點連結登入，沒收到的話看一下垃圾郵件匣。</p>'
+        '<button type="button" id="bk-sent-again" class="linkish">換一個 Email 或重寄</button></div>'
+        '</section>'
+        '<section id="bk-account" class="bk-box" hidden>'
+        '<div class="bk-bar"><p class="bk-rule">已登入：<span id="bk-who"></span></p><button type="button" id="bk-logout" class="linkish">登出</button></div>'
+        '<div id="bk-mine" class="bk-card bk-mine" hidden><h2>我的預約</h2><ul id="bk-mine-list"></ul></div>'
+        '</section>'
+        '<section class="bk-box"><h2 class="bk-h">可以預約的時段</h2><p id="bk-rule" class="bk-rule"></p>'
         '<nav id="bk-filter" class="filters" aria-label="服務篩選"></nav>'
-        '<div id="bk-slots" aria-live="polite"></div>'
+        '<div id="bk-slots" aria-live="polite"><p class="lead">讀取中…</p></div>'
         '<form id="bk-form" class="bk-form" novalidate hidden><h3>填寫預約資料</h3><p id="bk-chosen" class="bk-chosen"></p>'
         '<label>姓名<input name="name" maxlength="30" autocomplete="name" required></label>'
-        '<label>Email<span>（確認信和取消連結會寄到這裡）</span><input name="email" type="email" maxlength="100" autocomplete="email" inputmode="email" required></label>'
         '<label>電話或 LINE<span>（選填，臨時有變動時方便聯絡你）</span><input name="contact" maxlength="60" autocomplete="tel"></label>'
         '<label>想讓老師知道的事<span>（選填，例如最近哪裡不舒服、想加強的地方）</span><textarea name="note" rows="3" maxlength="300"></textarea></label>'
-        '<input name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">'
         '<button type="submit" class="btn">確認預約</button><p id="bk-msg" class="fb-err" role="alert"></p></form>'
-        '</div>'
+        '</section></div>'
         '<div id="bk-done" class="bk-box bk-done" hidden role="status"><h2>預約完成，期待見到你！</h2>'
         '<p id="bk-done-what" class="bk-chosen"></p><p id="bk-done-mail" class="lead"></p>'
-        '<p class="lead">如果之後需要取消，可以用這個連結：</p>'
-        '<a id="bk-done-link" class="bk-link" href="#"></a>'
-        '<div class="btns"><button type="button" id="bk-copy" class="btn ghost">複製取消連結</button><button type="button" id="bk-again" class="btn ghost">再預約其他時段</button></div></div>'
+        '<p class="lead">之後要取消，可以回到這一頁的「我的預約」，或用確認信裡的取消連結。</p>'
+        '<div class="btns"><button type="button" id="bk-again" class="btn ghost">回到預約頁</button></div></div>'
         '<div id="bk-cancel" class="bk-box bk-done" hidden><h2>取消預約</h2><p id="bk-cancel-info">讀取中…</p>'
         '<p id="bk-cancel-msg" class="lead" role="status"></p><button type="button" id="bk-cancel-btn" class="btn" hidden>確定取消這堂課</button></div>'
         '<noscript><p class="lead">預約功能需要開啟 JavaScript。</p></noscript>'
         '<script src="/booking.js" defer></script></article>')
-    write("booking/index.html", page("學員預約", "在這裡線上預約柔柔老師的一對一與小團體皮拉提斯課程。", "/booking/", bk_main))
+    write("booking/index.html", page("學員預約", "柔柔老師的課程預約。", "/booking/", bk_main, noindex=True))
 
     # 404
     write("404.html", page("找不到頁面", "找不到這個頁面。", "/404.html",

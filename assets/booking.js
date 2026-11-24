@@ -1,16 +1,20 @@
 (function(){
   function $(id){return document.getElementById(id)}
   function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
-  function show(id){['bk-pick','bk-done','bk-cancel'].forEach(function(x){$(x).hidden=(x!==id)});}
-  function err(r){return r.json().then(function(j){return {ok:r.ok&&j.ok,j:j}},function(){return {ok:false,j:{}}})}
+  function res(r){return r.json().then(function(j){return {ok:r.ok&&j.ok!==false,j:j,status:r.status}},function(){return {ok:false,j:{},status:r.status}})}
+  function api(path,body){
+    return fetch(path,body===undefined?{credentials:'same-origin'}:{method:'POST',credentials:'same-origin',
+      headers:{'content-type':'application/json','x-requested-with':'rou'},body:JSON.stringify(body)}).then(res);
+  }
   var FAIL='連線失敗，請稍後再試。';
+  var params=new URLSearchParams(location.search);
 
-  // 取消預約（從預約成功時拿到的連結進來）
-  var t=new URLSearchParams(location.search).get('cancel');
+  // ---------- 用信裡的取消連結進來 ----------
+  var t=params.get('cancel');
   if(t){
-    show('bk-cancel');
+    ['bk-main','bk-done'].forEach(function(x){$(x).hidden=true});$('bk-cancel').hidden=false;
     var info=$('bk-cancel-info'),cmsg=$('bk-cancel-msg'),cbtn=$('bk-cancel-btn');
-    fetch('/api/booking/cancel?t='+encodeURIComponent(t)).then(err).then(function(x){
+    fetch('/api/booking/cancel?t='+encodeURIComponent(t)).then(res).then(function(x){
       if(!x.ok){info.textContent=x.j.error||FAIL;return}
       var d=x.j; info.textContent=d.name+'，你預約的是：'+d.service+'　'+d.when;
       if(d.status!=='booked'){cmsg.textContent='這筆預約已經取消了。';return}
@@ -21,7 +25,7 @@
       if(!confirm('確定要取消這堂課嗎？'))return;
       cbtn.disabled=true;
       fetch('/api/booking/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:t})})
-      .then(err).then(function(x){
+      .then(res).then(function(x){
         if(x.ok){cbtn.hidden=true;cmsg.textContent='已經幫你取消了，謝謝你提早告知。'}
         else{cmsg.textContent=x.j.error||FAIL;cbtn.disabled=false}
       }).catch(function(){cmsg.textContent=FAIL;cbtn.disabled=false});
@@ -29,12 +33,99 @@
     return;
   }
 
-  var slots=[],filter='',chosen=null;
+  var user=null,slots=[],filter='',chosen=null,tsWidget=null,tsKey='';
   var list=$('bk-slots'),form=$('bk-form'),fmsg=$('bk-msg');
 
+  // ---------- 登入 ----------
+  var LOGIN_MSG={fail:'登入沒有成功，請再試一次。',expired:'登入連結已經過期或用過了，請重新寄一次。',off:'這個登入方式還沒有開放。'};
+  if(params.get('login')){
+    $('bk-login-msg').textContent=LOGIN_MSG[params.get('login')]||LOGIN_MSG.fail;
+    history.replaceState(null,'',location.pathname);
+  }
+
+  function loadTurnstile(){
+    if(!tsKey||window.turnstile)return renderTs();
+    window.rouTsReady=renderTs;
+    var s=document.createElement('script');
+    s.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=rouTsReady';s.async=true;
+    document.head.appendChild(s);
+  }
+  function renderTs(){
+    if(!tsKey||!window.turnstile||tsWidget!==null)return;
+    tsWidget=window.turnstile.render('#bk-ts',{sitekey:tsKey,language:'zh-tw',size:'flexible'});
+  }
+  function tsToken(){return tsWidget!==null&&window.turnstile?window.turnstile.getResponse(tsWidget)||'':''}
+  function tsReset(){if(tsWidget!==null&&window.turnstile)window.turnstile.reset(tsWidget)}
+
+  $('bk-email-form').addEventListener('submit',function(e){
+    e.preventDefault();
+    var f=this,btn=f.querySelector('button'),msg=$('bk-login-msg'),email=f.email.value.trim();
+    msg.textContent='';
+    if(!email){msg.textContent='請填寫 Email';return}
+    if(tsKey&&!tsToken()){msg.textContent='請稍等驗證完成，再按一次。';return}
+    btn.disabled=true;
+    api('/api/login-link',{email:email,turnstile:tsToken()}).then(function(x){
+      btn.disabled=false;tsReset();
+      if(x.ok){f.hidden=true;$('bk-or').hidden=true;$('bk-google').hidden=true;$('bk-sent-to').textContent=email;$('bk-sent').hidden=false;return}
+      msg.textContent=x.j.error||FAIL;
+    }).catch(function(){btn.disabled=false;tsReset();msg.textContent=FAIL});
+  });
+  $('bk-sent-again').addEventListener('click',function(){
+    $('bk-sent').hidden=true;$('bk-email-form').hidden=false;
+    $('bk-or').hidden=$('bk-google').hidden=$('bk-google').dataset.off==='1';
+  });
+
+  $('bk-logout').addEventListener('click',function(){
+    api('/api/logout',{}).then(function(){location.reload()},function(){location.reload()});
+  });
+
+  function showAccount(cfg){
+    user=cfg.user;
+    $('bk-login').hidden=!!user;
+    $('bk-account').hidden=!user;
+    if(user){
+      $('bk-who').textContent=user.email;
+      if(!form.name.value)form.name.value=user.name||'';
+      if(!form.contact.value)form.contact.value=user.phone||'';
+      loadMine();
+    }else{
+      var g=$('bk-google');g.hidden=!cfg.google;g.dataset.off=cfg.google?'0':'1';
+      $('bk-email-form').hidden=!cfg.emailLogin;
+      $('bk-or').hidden=!(cfg.google&&cfg.emailLogin);
+      if(!cfg.google&&!cfg.emailLogin)$('bk-login-msg').textContent='線上預約還沒有開放，請直接傳訊息給老師。';
+      tsKey=cfg.turnstileSiteKey||'';
+      if(cfg.emailLogin)loadTurnstile();
+    }
+  }
+
+  // ---------- 我的預約 ----------
+  function loadMine(){
+    api('/api/my/bookings').then(function(x){
+      var box=$('bk-mine-list');box.textContent='';
+      var items=(x.ok&&x.j.items)||[];
+      $('bk-mine').hidden=!items.length;
+      items.forEach(function(b){
+        var li=el('li');
+        var txt=el('div');txt.appendChild(el('b',null,b.when));txt.appendChild(el('span','s',b.service));li.appendChild(txt);
+        if(b.canCancel){
+          var c=el('button','linkish','取消');c.type='button';
+          c.addEventListener('click',function(){
+            if(!confirm('確定要取消 '+b.when+' 的課嗎？'))return;
+            c.disabled=true;
+            api('/api/my/cancel',{id:b.id}).then(function(r){
+              if(r.ok){loadMine();fetchSlots()}else{alert(r.j.error||FAIL);c.disabled=false}
+            }).catch(function(){alert(FAIL);c.disabled=false});
+          });
+          li.appendChild(c);
+        }else li.appendChild(el('span','s','要取消請傳訊息給老師'));
+        box.appendChild(li);
+      });
+    }).catch(function(){});
+  }
+
+  // ---------- 時段 ----------
   function fetchSlots(){
-    show('bk-pick');
-    return fetch('/api/booking/slots').then(err).then(function(x){
+    return fetch('/api/booking/slots').then(res).then(function(x){
       if(!x.ok){list.textContent='';list.appendChild(el('p','fb-err',x.j.error||FAIL));return}
       slots=x.j.items||[];
       $('bk-rule').textContent='開課前 '+x.j.bookBeforeHours+' 小時停止線上預約；開課前 '+x.j.cancelBeforeHours+' 小時以前可以自己取消。';
@@ -43,7 +134,6 @@
   }
 
   function render(){
-    // 服務篩選
     var svcs=[];slots.forEach(function(s){if(svcs.indexOf(s.service)<0)svcs.push(s.service)});
     if(filter&&svcs.indexOf(filter)<0)filter='';
     var bar=$('bk-filter');bar.textContent='';bar.hidden=svcs.length<2;
@@ -54,7 +144,7 @@
     });
     list.textContent='';
     var items=slots.filter(function(s){return !filter||s.service===filter});
-    if(!items.length){list.appendChild(el('p','lead','目前沒有可以預約的時段，老師開放新時段後會再更新。也歡迎直接傳訊息詢問。'));return}
+    if(!items.length){list.appendChild(el('p','lead','目前沒有可以預約的時段，老師開放新時段後會再通知。'));return}
     var day='',grid;
     items.forEach(function(s){
       if(s.date!==day){day=s.date;list.appendChild(el('h3','bk-day',s.when.split('）')[0]+'）'));grid=el('div','bk-grid');list.appendChild(grid)}
@@ -69,38 +159,39 @@
   }
 
   function openForm(){
+    if(!user){
+      $('bk-login-msg').textContent='請先登入，就能預約 '+chosen.when+' 的課。';
+      $('bk-login').scrollIntoView({behavior:'smooth',block:'start'});
+      return;
+    }
     $('bk-chosen').textContent=chosen.service+'　'+chosen.when;
     form.hidden=false;fmsg.textContent='';
     form.scrollIntoView({behavior:'smooth',block:'start'});
-    setTimeout(function(){form.name.focus({preventScroll:true})},300);
+    if(!form.name.value)setTimeout(function(){form.name.focus({preventScroll:true})},300);
   }
-
 
   form.addEventListener('submit',function(e){
     e.preventDefault();if(!chosen)return;
     var btn=form.querySelector('button[type=submit]');btn.disabled=true;fmsg.textContent='';
-    fetch('/api/booking',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-      slot_id:chosen.id,name:form.name.value,email:form.email.value,contact:form.contact.value,note:form.note.value,hp:form.hp.value})})
-    .then(err).then(function(x){
+    api('/api/booking',{slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value}).then(function(x){
       btn.disabled=false;
       if(x.ok){
-        try{localStorage.setItem('rou-booking-name',form.name.value);localStorage.setItem('rou-booking-email',form.email.value);localStorage.setItem('rou-booking-contact',form.contact.value)}catch(e){}
-        var d=x.j,link=location.origin+'/booking/?cancel='+encodeURIComponent(d.token);
+        var d=x.j;
         $('bk-done-what').textContent=d.service+'　'+d.when;
-        $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'，裡面也有取消連結。沒收到的話請看一下垃圾郵件匣。':'';
-        var a=$('bk-done-link');a.href=link;a.textContent=link;
-        show('bk-done');window.scrollTo(0,0);return;
+        $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
+        $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
       }
+      if(x.status===401){location.reload();return}
       fmsg.textContent=x.j.error||FAIL;
       if(x.j.full){chosen=null;form.hidden=true;fetchSlots()}
     }).catch(function(){btn.disabled=false;fmsg.textContent=FAIL});
   });
-  $('bk-copy').addEventListener('click',function(){
-    var link=$('bk-done-link').href,b=this;
-    (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject()).then(function(){b.textContent='已複製'},function(){b.textContent='請長按連結複製'});
+  $('bk-again').addEventListener('click',function(){
+    chosen=null;form.hidden=true;form.note.value='';
+    $('bk-done').hidden=true;$('bk-main').hidden=false;loadMine();fetchSlots();window.scrollTo(0,0);
   });
-  $('bk-again').addEventListener('click',function(){chosen=null;form.hidden=true;form.note.value='';fetchSlots()});
 
-  try{form.name.value=localStorage.getItem('rou-booking-name')||'';form.email.value=localStorage.getItem('rou-booking-email')||'';form.contact.value=localStorage.getItem('rou-booking-contact')||''}catch(e){}
+  fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()}).then(showAccount)
+    .catch(function(){$('bk-login-msg').textContent=FAIL});
   fetchSlots();
 })();

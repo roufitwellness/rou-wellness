@@ -2,7 +2,7 @@
  * Rou Wellness 預約通知信：用柔柔老師自己的 Gmail 寄信。
  *
  * 設定步驟（只要做一次）：
- * 1. 用你要寄信的 Gmail 帳號打開 https://script.google.com ，按「新專案」。
+ * 1. 登入品牌 Gmail 帳號（信會從這個帳號寄出），打開 https://script.google.com ，按「新專案」。
  * 2. 把這整個檔案的內容貼上，取代原本的程式碼，按儲存。
  * 3. 左邊「專案設定」（齒輪）→ 最下面「指令碼屬性」→ 新增：
  *      SECRET        一串只有你知道的長密碼（跟 Cloudflare 的 MAIL_SECRET 一樣）
