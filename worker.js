@@ -200,18 +200,21 @@ async function adminAction(req, env, url) {
 // capacity：人數上限；friends：學員要自己找幾位朋友一起來（預約時要填朋友的姓名和電話）。
 // 有 friends 的服務是「一組包下整個時段」，人數上限固定是 1 + friends。
 const SERVICES = {
-  "基礎客製一對一器械式皮拉提斯課程": { capacity: 1 },
+  "客製一對一器械式皮拉提斯課程": { capacity: 1 },
   "一對二器械式皮拉提斯課程": { capacity: 2, friends: 1 },
 };
 // 改過名字的服務：舊名稱 → 新名稱（已經開好的時段會自動換成新名稱）
-const RENAMED = { "一對一皮拉提斯": "基礎客製一對一器械式皮拉提斯課程", "小團體皮拉提斯": "一對二器械式皮拉提斯課程" };
+const RENAMED = {
+  "一對一皮拉提斯": "客製一對一器械式皮拉提斯課程", "基礎客製一對一器械式皮拉提斯課程": "客製一對一器械式皮拉提斯課程",
+  "小團體皮拉提斯": "一對二器械式皮拉提斯課程",
+};
 
 // 訂金制度（在管理頁開關）：開啟後，預約要在 DEPOSIT_HOURS 小時內付訂金，老師在管理頁標記「已付訂金」，沒標記的會自動取消
 const DEPOSIT_AMOUNT = 500;
 const DEPOSIT_HOURS = 24;
 const LINE_URL = "https://lin.ee/RPa9rku";
 const SITE_ORIGIN = "https://rou-wellness.roufitwellness.workers.dev"; // 排程寄信時沒有網址可參考，用這個
-const depositNote = () => `請於 ${DEPOSIT_HOURS} 小時內至官方 LINE（${LINE_URL}）取得付款連結並支付訂金 ${DEPOSIT_AMOUNT} 元，再於 LINE 回傳後五碼或截圖。逾期未付款，預約將自動取消。`;
+const depositNote = () => `請於 ${DEPOSIT_HOURS} 小時內至官方 LINE（${LINE_URL}）取得付款資訊並支付訂金 ${DEPOSIT_AMOUNT} 元，再於 LINE 回傳後五碼或截圖。逾期未付款，預約將自動取消。`;
 const friendsFor = (service) => (SERVICES[service] && SERVICES[service].friends) || 0;
 const needsPartners = (service) => friendsFor(service) > 0;
 const BOOK_BEFORE_HOURS = 12; // 開課前幾小時停止線上預約

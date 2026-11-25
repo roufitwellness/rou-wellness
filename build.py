@@ -25,8 +25,8 @@ HERO_IMAGE = "hero.jpg"  # 放在 assets/images/ 裡，沒有這張就顯示柔�
 NOTICE = "目前時間比較有限，2027 年 3 月前暫不接新學員。有任何問題，還是歡迎傳訊息給我，我會回覆你。"
 
 SERVICES = [
-    {"name": "一對一皮拉提斯", "desc": "依你的身體狀況與目標，一對一調整動作。", "image": "service-1.png"},
-    {"name": "小團體皮拉提斯", "desc": "小班教學，人數有上限，節奏比較從容。", "image": "service-2.png"},
+    {"name": "客製一對一器械式皮拉提斯", "desc": "依你的身體狀況與目標，一對一設計與調整動作。", "image": "service-1.png"},
+    {"name": "一對二器械式皮拉提斯", "desc": "和朋友一起報名的兩人課，一起練習、互相督促。", "image": "service-2.png"},
     {"name": "淋巴引流", "desc": "一種輕柔的手技，幫助身體放鬆。", "image": "service-3.png"},
 ]
 DISCLAIMER = "本站內容為一般運動與健康促進資訊，不能取代醫療專業的評估與建議。"
