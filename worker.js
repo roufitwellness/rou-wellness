@@ -315,7 +315,7 @@ async function googleCallback(req, env, url) {
   return startSession(env, info.email, info.name || "", url);
 }
 
-async function verifyTurnstile(env, token, ip) {
+async function verifyTurnstile(env, token, ip, host) {
   if (!env.TURNSTILE_SECRET) return true; // 還沒設定就先不檢查
   if (!token) return false;
   try {
@@ -323,7 +323,8 @@ async function verifyTurnstile(env, token, ip) {
       method: "POST", body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
     });
     const d = await r.json();
-    return Boolean(d.success);
+    // 確認驗證是在我們自己的網站上完成的，不是別的網站拿來用的
+    return Boolean(d.success) && (!d.hostname || d.hostname === host);
   } catch { return false; }
 }
 
@@ -334,7 +335,7 @@ async function emailLinkRequest(req, env, ctx, url) {
   const email = String(d.email || "").trim().toLowerCase().slice(0, 100);
   if (!EMAIL_RE.test(email)) return json({ ok: false, error: "請填寫正確的 Email" }, 400);
   const ip = req.headers.get("cf-connecting-ip") || "unknown";
-  if (!(await verifyTurnstile(env, d.turnstile, ip))) return json({ ok: false, error: "驗證沒有通過，請重新整理頁面再試一次。", retry: true }, 403);
+  if (!(await verifyTurnstile(env, d.turnstile, ip, url.hostname))) return json({ ok: false, error: "驗證沒有通過，請重新整理頁面再試一次。", retry: true }, 403);
   await init(env);
   const ipHash = await sha256("rou:" + ip);
   const hour = new Date(Date.now() - 3600 * 1000).toISOString();
