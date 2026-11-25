@@ -395,6 +395,14 @@ def main():
         f'<script src="{v("feedback.js")}" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
 
+    # 預約條款：內容在 content/booking-terms.md，改那個檔案就好。版本號用內容算出來，預約時會記錄學員同意的是哪一版。
+    import hashlib
+    terms = load(ROOT / "content" / "booking-terms.md")
+    terms_html = md_to_html(terms["body"])
+    terms_ver = hashlib.sha1(terms["body"].encode("utf8")).hexdigest()[:10]
+    write("booking/terms/index.html", page(terms["title"], terms["description"], "/booking/terms/",
+          f'<article class="post"><p class="crumb"><a href="/booking/">← 回到預約</a></p><h1 class="page-title">{esc(terms["title"])}</h1><div class="prose">{terms_html}</div></article>', noindex=True))
+
     # 學員預約：老師在 /admin/booking 開時段，學員登入（Google 或 Email 連結）後選時段，預約後寄確認信。
     # 這頁不放在選單、不給搜尋引擎收錄，網址由老師自己傳給學員。
     bk_main = ('<article class="post"><h1 class="page-title">學員預約</h1>'
@@ -428,6 +436,9 @@ def main():
         '<div id="bk-partner-rows" class="bk-prows"></div>'
         '<button type="button" id="bk-add-partner" class="linkish" hidden>＋ 再加一位朋友</button></fieldset>'
         '<label>想讓老師知道的事<span>（選填，例如最近哪裡不舒服、想加強的地方）</span><textarea name="note" rows="3" maxlength="300"></textarea></label>'
+        f'<div class="bk-terms" data-version="{terms_ver}"><p class="bk-terms-head"><b>預約須知與條款</b><a href="/booking/terms/" target="_blank" rel="noopener">在新分頁開啟</a></p>'
+        f'<div class="bk-terms-box prose" tabindex="0" aria-label="預約須知與條款">{terms_html}</div>'
+        '<label class="bk-agree"><input type="checkbox" name="agree" required><span>我已詳閱並同意以上課程條款與個人資料與隱私保護政策</span></label></div>'
         '<button type="submit" class="btn">確認預約</button><p id="bk-msg" class="fb-err" role="alert"></p></form>'
         '</section></div>'
         '<div id="bk-done" class="bk-box bk-done" hidden role="status"><h2>預約完成，期待見到你！</h2>'

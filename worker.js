@@ -34,6 +34,8 @@ const BOOKING_SCHEMA = [
   reminded_at TEXT,
   seats INTEGER NOT NULL DEFAULT 1,
   partners TEXT NOT NULL DEFAULT '',
+  terms_version TEXT,
+  agreed_at TEXT,
   ip_hash TEXT
 )`,
   `CREATE INDEX IF NOT EXISTS bookings_slot ON bookings (slot_id, status)`,
@@ -66,7 +68,8 @@ const BOOKING_SCHEMA = [
 // 已經上線的資料表，之後新增的欄位在這裡補上
 async function migrate(env) {
   const add = [["slots", "room_id", "INTEGER"], ["bookings", "reminded_at", "TEXT"],
-    ["bookings", "seats", "INTEGER NOT NULL DEFAULT 1"], ["bookings", "partners", "TEXT NOT NULL DEFAULT ''"]];
+    ["bookings", "seats", "INTEGER NOT NULL DEFAULT 1"], ["bookings", "partners", "TEXT NOT NULL DEFAULT ''"],
+    ["bookings", "terms_version", "TEXT"], ["bookings", "agreed_at", "TEXT"]];
   for (const [table, col, type] of add) {
     const { results } = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
     if (!(results || []).some((c) => c.name === col)) await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run();
@@ -192,7 +195,7 @@ const SERVICES = {
 const friendsFor = (service) => (SERVICES[service] && SERVICES[service].friends) || 0;
 const needsPartners = (service) => friendsFor(service) > 0;
 const BOOK_BEFORE_HOURS = 12; // 開課前幾小時停止線上預約
-const CANCEL_BEFORE_HOURS = 24; // 開課前幾小時內不能線上取消（請直接傳訊息給老師）
+const CANCEL_BEFORE_HOURS = 30; // 開課前幾小時內不能線上取消（跟預約條款第四條一致，改這裡也要改條款）
 const PREP_NOTE = "請著舒適運動服飾，並攜帶水壺與毛巾。"; // 預約成功信和上課提醒信都會附上
 // 上課前一天晚上 8 點（台灣時間）寄提醒信，時間設定在 wrangler.jsonc 的 triggers（"0 12 * * *" 是世界時間中午 12 點）
 
@@ -558,6 +561,8 @@ async function book(req, env, ctx, url, user) {
   const email = user.email;
   if (!Number.isInteger(slotId)) return json({ ok: false, error: "請先選擇時段" }, 400);
   if (!name) return json({ ok: false, error: "請填寫姓名" }, 400);
+  if (d.agree !== true) return json({ ok: false, error: "請先閱讀預約須知與條款，並勾選同意" }, 400);
+  const termsVersion = String(d.terms || "").replace(/[^0-9a-f]/g, "").slice(0, 20);
   const slot = await env.DB.prepare("SELECT service FROM slots WHERE id = ?").bind(slotId).first();
   if (!slot) return json({ ok: false, error: "找不到這個時段，請重新整理頁面。", full: true }, 404);
   let partners = [];
@@ -582,11 +587,11 @@ async function book(req, env, ctx, url, user) {
   const token = randomToken();
   // 一個指令內同時檢查「時段開放、還沒截止、還有名額」，避免兩個人同時搶到最後一個位子
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (slot_id, user_id, name, email, contact, note, status, token, created_at, seats, partners)
-     SELECT s.id, ?, ?, ?, ?, ?, 'booked', ?, ?, ?, ? FROM slots s
+    `INSERT INTO bookings (slot_id, user_id, name, email, contact, note, status, token, created_at, seats, partners, terms_version, agreed_at)
+     SELECT s.id, ?, ?, ?, ?, ?, 'booked', ?, ?, ?, ?, ?, ? FROM slots s
      WHERE s.id = ? AND s.status = 'open' AND s.starts_at > ?
        AND ${TAKEN} + ? <= s.capacity`
-  ).bind(user.id, name, email, contact, note, token, new Date().toISOString(), seats, partners.length ? JSON.stringify(partners) : "",
+  ).bind(user.id, name, email, contact, note, token, new Date().toISOString(), seats, partners.length ? JSON.stringify(partners) : "", termsVersion, new Date().toISOString(),
     slotId, twNow(BOOK_BEFORE_HOURS), seats).run();
   if (!r.meta || r.meta.changes !== 1) {
     const left = await env.DB.prepare(`SELECT s.capacity - ${TAKEN} AS n FROM slots s WHERE s.id = ? AND s.status = 'open' AND s.starts_at > ?`)

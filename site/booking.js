@@ -205,8 +205,9 @@
 
   form.addEventListener('submit',function(e){
     e.preventDefault();if(!chosen)return;
+    if(!form.agree.checked){fmsg.textContent='請先閱讀預約須知與條款，並勾選同意。';form.agree.focus();return}
     var btn=form.querySelector('button[type=submit]');btn.disabled=true;fmsg.textContent='';
-    api('/api/booking',{slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value,partners:collectPartners()}).then(function(x){
+    api('/api/booking',{slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value,partners:collectPartners(),agree:form.agree.checked,terms:form.querySelector('.bk-terms').dataset.version}).then(function(x){
       btn.disabled=false;
       if(x.ok){
         var d=x.j;
@@ -227,7 +228,7 @@
     }).catch(function(){btn.disabled=false;fmsg.textContent=FAIL});
   });
   $('bk-again').addEventListener('click',function(){
-    chosen=null;form.hidden=true;form.note.value='';prows.textContent='';
+    chosen=null;form.hidden=true;form.note.value='';prows.textContent='';form.agree.checked=false;
     $('bk-done').hidden=true;$('bk-main').hidden=false;loadMine();fetchSlots();window.scrollTo(0,0);
   });
 
