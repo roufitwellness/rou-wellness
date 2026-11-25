@@ -205,3 +205,4 @@ a.ser:hover{color:var(--accent);text-decoration:underline}
 .bk-partners .linkish{justify-self:start}
 .bk-partners .linkish[hidden]{display:none}
 @media (max-width:480px){.bk-prow{grid-template-columns:1fr 1fr}.bk-prow .linkish{grid-column:1/-1;justify-self:end}}
+.bk-prow input[name=pemail]{grid-column:1/-1}

@@ -234,7 +234,7 @@ const ROOM_JOIN = "LEFT JOIN rooms r ON r.id = s.room_id";
 // 已經被預約的人數（一筆預約可能包含同行夥伴，所以用 seats 加總）
 const TAKEN = "(SELECT COALESCE(SUM(b.seats), 0) FROM bookings b WHERE b.slot_id = s.id AND b.status = 'booked')";
 function parsePartners(text) { try { const a = JSON.parse(text || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } }
-const partnerText = (list, sep = "、") => list.map((x) => `${x.name}（${x.phone}）`).join(sep);
+const partnerText = (list, sep = "、") => list.map((x) => `${x.name}（${x.phone}${x.email ? "，" + x.email : ""}）`).join(sep);
 const ROOM_COLS = "r.name AS room_name, r.address AS room_address, r.guide_url AS room_url";
 
 // 地點說明：b 裡有 room_name、room_address、room_url（教室在管理頁設定）
@@ -250,7 +250,25 @@ function placeLines(b) {
 function partnerLines(b) {
   const list = b.partners || [];
   if (!list.length) return "";
-  return `同行朋友：${list.map((x) => x.name).join("、")}（共 ${list.length + 1} 人）\n朋友不會另外收到信，麻煩幫忙轉告上課時間與地點喔！\n\n`;
+  const allMail = list.every((x) => x.email);
+  return `同行朋友：${list.map((x) => x.name).join("、")}（共 ${list.length + 1} 人）\n`
+    + (allMail ? "朋友也會收到確認信和上課提醒。\n\n" : "朋友沒有留 Email，不會另外收到信，麻煩幫忙轉告上課時間與地點喔！\n\n");
+}
+
+// 寄給朋友的信（朋友有留 Email 才會寄）
+function friendMail(kind, b, f, byTeacher) {
+  const what = `${b.when} ${atRoom(b)}${b.service}`;
+  if (kind === "booked") return { to: f.email, subject: `預約完成：${b.when} ${b.service}`,
+    body: `${f.name} 您好，\n\n${b.name} 已為兩位預約好 ${what}！\n${PREP_NOTE}${placeLines(b)}\n\n期待當天見面！\n\n需要取消或改時間，請和 ${b.name} 討論，或直接回覆這封信。${SIGN}` };
+  if (kind === "reminder") return { to: f.email, subject: `明天上課提醒：${b.when} ${b.service}`,
+    body: `${f.name} 您好，\n\n提醒您明天和 ${b.name} 一起上課：${what}。\n${PREP_NOTE}${placeLines(b)}\n\n臨時需要取消或改時間，請直接回覆這封信。期待明天見面！${SIGN}` };
+  return { to: f.email, subject: `已取消預約：${b.when} ${b.service}`,
+    body: `${f.name} 您好，\n\n${byTeacher ? "很抱歉，以下這堂課老師這邊需要取消" : `${b.name} 已取消以下這堂課`}：\n\n課程：${b.service}\n時間：${b.when}\n\n有任何問題，直接回覆這封信就可以了。${SIGN}` };
+}
+// 寄給預約人，朋友有留 Email 的話也一起寄。b.partners 要是已解析的陣列
+function notify(env, ctx, kind, origin, b, byTeacher = false) {
+  sendMail(env, ctx, kind === "booked" ? mailBooked(origin, b) : kind === "reminder" ? mailReminder(b) : mailCancelled(origin, b, byTeacher));
+  for (const f of b.partners || []) if (f.email) sendMail(env, ctx, friendMail(kind, b, f, byTeacher));
 }
 
 function mailBooked(origin, b) {
@@ -307,7 +325,7 @@ async function sendReminders(env, ctx) {
     const slotById = Object.fromEntries(slots.map((x) => [x.id, x]));
     for (const b of todo) {
       const sl = slotById[b.slot_id];
-      sendMail(env, ctx, mailReminder({ ...sl, ...b, partners: parsePartners(b.partners), when: zhWhen(sl.starts_at, sl.minutes) }));
+      notify(env, ctx, "reminder", "", { ...sl, ...b, partners: parsePartners(b.partners), when: zhWhen(sl.starts_at, sl.minutes) });
     }
   }
 
@@ -506,7 +524,7 @@ async function myBookings(env, user) {
 async function myCancel(req, env, ctx, url, user) {
   let d; try { d = await req.json(); } catch { return json({ ok: false }, 400); }
   const b = await env.DB.prepare(
-    "SELECT b.id, b.name, b.email, b.status, b.seats, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.id = ? AND b.user_id = ?"
+    "SELECT b.id, b.name, b.email, b.status, b.seats, b.partners, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.id = ? AND b.user_id = ?"
   ).bind(Number(d.id), user.id).first();
   if (!b) return json({ ok: false, error: "找不到這筆預約。" }, 404);
   return doCancel(env, ctx, url, b);
@@ -547,10 +565,13 @@ async function book(req, env, ctx, url, user) {
   if (need) {
     if (contact.length < 6) return json({ ok: false, error: `${slot.service}請填寫你的聯絡電話` }, 400);
     const raw = Array.isArray(d.partners) ? d.partners.slice(0, need + 2) : [];
-    partners = raw.map((x) => ({ name: String((x && x.name) || "").trim().slice(0, 30), phone: String((x && x.phone) || "").trim().slice(0, 30) }))
-      .filter((x) => x.name || x.phone);
+    partners = raw.map((x) => ({ name: String((x && x.name) || "").trim().slice(0, 30), phone: String((x && x.phone) || "").trim().slice(0, 30),
+      email: String((x && x.email) || "").trim().toLowerCase().slice(0, 100) }))
+      .filter((x) => x.name || x.phone || x.email);
     if (partners.length !== need || partners.some((x) => !x.name || x.phone.length < 6))
       return json({ ok: false, error: `${slot.service}是 ${need + 1} 人一起上課，請填寫朋友的姓名和電話` }, 400);
+    if (partners.some((x) => x.email && !EMAIL_RE.test(x.email))) return json({ ok: false, error: "朋友的 Email 格式不正確，不確定的話可以先空著" }, 400);
+    partners = partners.map((x) => (x.email ? x : { name: x.name, phone: x.phone }));
   }
   const seats = 1 + partners.length;
   const since = new Date(Date.now() - 86400 * 1000).toISOString();
@@ -576,8 +597,8 @@ async function book(req, env, ctx, url, user) {
   await env.DB.prepare("UPDATE users SET name = ?, phone = ? WHERE id = ?").bind(name, contact, user.id).run();
   const s = await env.DB.prepare(`SELECT s.service, s.starts_at, s.minutes, ${ROOM_COLS} FROM slots s ${ROOM_JOIN} WHERE s.id = ?`).bind(slotId).first();
   const when = zhWhen(s.starts_at, s.minutes);
-  sendMail(env, ctx, mailBooked(url.origin, { ...s, token, when, name, email, contact, note, partners }));
-  return json({ ok: true, service: s.service, when, email, mail: mailOn(env), prep: PREP_NOTE, partners: partners.map((x) => x.name),
+  notify(env, ctx, "booked", url.origin, { ...s, token, when, name, email, contact, note, partners });
+  return json({ ok: true, service: s.service, when, email, mail: mailOn(env), prep: PREP_NOTE, partners: partners.map((x) => x.name), friendMail: partners.length > 0 && partners.every((x) => x.email) && mailOn(env),
     room: s.room_name || "", roomAddress: s.room_address || "", roomUrl: s.room_url || "" });
 }
 
@@ -585,7 +606,7 @@ async function bookingByToken(env, token) {
   if (!token || token.length < 20 || token.length > 40) return null;
   await init(env);
   return env.DB.prepare(
-    `SELECT b.id, b.name, b.email, b.status, b.seats, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.token = ?`
+    `SELECT b.id, b.name, b.email, b.status, b.seats, b.partners, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.token = ?`
   ).bind(token).first();
 }
 
@@ -607,7 +628,7 @@ async function doCancel(env, ctx, url, b) {
   if (b.status !== "booked") return json({ ok: true });
   if (b.starts_at <= twNow(CANCEL_BEFORE_HOURS)) return json({ ok: false, error: `開課前 ${CANCEL_BEFORE_HOURS} 小時內無法線上取消，請直接傳訊息給老師。` }, 409);
   const r = await env.DB.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'booked'").bind(new Date().toISOString(), b.id).run();
-  if (r.meta && r.meta.changes === 1) sendMail(env, ctx, mailCancelled(url.origin, { ...b, when: zhWhen(b.starts_at, b.minutes) }, false));
+  if (r.meta && r.meta.changes === 1) notify(env, ctx, "cancelled", url.origin, { ...b, partners: parsePartners(b.partners), when: zhWhen(b.starts_at, b.minutes) }, false);
   return json({ ok: true });
 }
 
@@ -635,7 +656,7 @@ async function bookingAdminPage(env, url) {
     const head = s.starts_at.slice(0, 10) !== lastDate ? `<h2 class="day">${esc(zhWhen(s.starts_at, s.minutes).split("）")[0])}）</h2>` : "";
     lastDate = s.starts_at.slice(0, 10);
     const people = bs.map((b) => `<li class="b-${b.status}"><div><b>${esc(b.name)}</b>${(b.seats || 1) > 1 ? `（${b.seats} 人）` : ""}　<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>${b.contact ? "　" + esc(b.contact) : ""}${b.status === "cancelled" ? '　<span class="x">已取消</span>' : ""}
-${parsePartners(b.partners).map((x) => `<div class="note">朋友：${esc(x.name)}　${esc(x.phone)}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
+${parsePartners(b.partners).map((x) => `<div class="note">朋友：${esc(x.name)}　${esc(x.phone)}${x.email ? "　" + esc(x.email) : ""}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
     const full = taken >= s.capacity;
     const state = s.status === "closed" ? '<span class="tag closed">已關閉</span>' : full ? '<span class="tag full">額滿</span>' : '<span class="tag">開放中</span>';
     const toggle = s.status === "closed"
@@ -764,20 +785,20 @@ async function bookingAdminAction(req, env, ctx, url) {
   else if (d.action === "open") await env.DB.prepare("UPDATE slots SET status = 'open' WHERE id = ?").bind(id).run();
   else if (d.action === "delete") {
     const { results: bs } = await env.DB.prepare(
-      "SELECT b.name, b.email, b.seats, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.slot_id = ? AND b.status = 'booked'"
+      "SELECT b.name, b.email, b.seats, b.partners, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.slot_id = ? AND b.status = 'booked'"
     ).bind(id).all();
     await env.DB.batch([
     env.DB.prepare("DELETE FROM bookings WHERE slot_id = ?").bind(id),
       env.DB.prepare("DELETE FROM slots WHERE id = ?").bind(id),
     ]);
-    for (const b of bs || []) if (b.starts_at > twNow()) sendMail(env, ctx, mailCancelled(url.origin, { ...b, when: zhWhen(b.starts_at, b.minutes) }, true));
+    for (const b of bs || []) if (b.starts_at > twNow()) notify(env, ctx, "cancelled", url.origin, { ...b, partners: parsePartners(b.partners), when: zhWhen(b.starts_at, b.minutes) }, true);
   }
   else if (d.action === "cancel-booking") {
     const b = await env.DB.prepare(
-      "SELECT b.name, b.email, b.seats, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.id = ? AND b.status = 'booked'"
+      "SELECT b.name, b.email, b.seats, b.partners, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.id = ? AND b.status = 'booked'"
     ).bind(id).first();
     const r = await env.DB.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'booked'").bind(new Date().toISOString(), id).run();
-    if (b && r.meta && r.meta.changes === 1 && b.starts_at > twNow()) sendMail(env, ctx, mailCancelled(url.origin, { ...b, when: zhWhen(b.starts_at, b.minutes) }, true));
+    if (b && r.meta && r.meta.changes === 1 && b.starts_at > twNow()) notify(env, ctx, "cancelled", url.origin, { ...b, partners: parsePartners(b.partners), when: zhWhen(b.starts_at, b.minutes) }, true);
   }
   else return json({ ok: false }, 400);
   return json({ ok: true });

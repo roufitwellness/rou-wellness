@@ -180,7 +180,8 @@
     var row=el('div','bk-prow');
     var n=el('input');n.name='pname';n.placeholder='朋友的姓名';n.maxLength=30;n.autocomplete='off';
     var t=el('input');t.name='pphone';t.placeholder='朋友的電話';t.maxLength=30;t.type='tel';t.autocomplete='off';
-    row.appendChild(n);row.appendChild(t);
+    var m=el('input');m.name='pemail';m.placeholder='朋友的 Email（選填，填了朋友也會收到確認信和提醒）';m.maxLength=100;m.type='email';m.autocomplete='off';m.inputMode='email';
+    row.appendChild(n);row.appendChild(t);row.appendChild(m);
     if(!first){var x=el('button','linkish','移除');x.type='button';x.addEventListener('click',function(){row.remove();syncAdd()});row.appendChild(x)}
     prows.appendChild(row);syncAdd();return row;
   }
@@ -199,7 +200,7 @@
   }
   function collectPartners(){
     if(!(chosen&&chosen.group))return [];
-    return [].map.call(prows.children,function(r){return {name:r.querySelector('[name=pname]').value,phone:r.querySelector('[name=pphone]').value}});
+    return [].map.call(prows.children,function(r){return {name:r.querySelector('[name=pname]').value,phone:r.querySelector('[name=pphone]').value,email:r.querySelector('[name=pemail]').value}});
   }
 
   form.addEventListener('submit',function(e){
@@ -215,7 +216,7 @@
           place.appendChild(el('p',null,'地點：'+d.room+(d.roomAddress?'（'+d.roomAddress+'）':'')));
           if(d.roomUrl){var pa=el('p');pa.appendChild(document.createTextNode('地址與交通指引：'));var a=el('a',null,'打開指引');a.href=d.roomUrl;a.target='_blank';a.rel='noopener';pa.appendChild(a);place.appendChild(pa)}
         }
-        if(d.partners&&d.partners.length)place.appendChild(el('p',null,'一起上課的朋友：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。朋友不會收到信，麻煩幫忙轉告喔！'));
+        if(d.partners&&d.partners.length)place.appendChild(el('p',null,'一起上課的朋友：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。'+(d.friendMail?'朋友也會收到確認信和上課提醒。':'朋友不會收到信，麻煩幫忙轉告喔！')));
         if(d.prep)place.appendChild(el('p',null,d.prep));
         $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
         $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
