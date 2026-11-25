@@ -183,13 +183,14 @@ async function adminAction(req, env, url) {
 
 // ---------------- 學員預約 ----------------
 // 服務項目與預設人數上限（管理頁新增時段時可以再改人數）
-// capacity：預設人數上限（新增時段時可以改）；partners：學員要自己約同伴，預約時要填同行夥伴的姓名和電話
+// capacity：人數上限；friends：學員要自己找幾位朋友一起來（預約時要填朋友的姓名和電話）。
+// 有 friends 的服務是「一組包下整個時段」，人數上限固定是 1 + friends。
 const SERVICES = {
   "一對一皮拉提斯": { capacity: 1 },
-  "小團體皮拉提斯": { capacity: 4, partners: true },
+  "小團體皮拉提斯": { capacity: 2, friends: 1 },
 };
-const needsPartners = (service) => Boolean(SERVICES[service] && SERVICES[service].partners);
-const MAX_PARTNERS = 5;
+const friendsFor = (service) => (SERVICES[service] && SERVICES[service].friends) || 0;
+const needsPartners = (service) => friendsFor(service) > 0;
 const BOOK_BEFORE_HOURS = 12; // 開課前幾小時停止線上預約
 const CANCEL_BEFORE_HOURS = 24; // 開課前幾小時內不能線上取消（請直接傳訊息給老師）
 const PREP_NOTE = "請著舒適運動服飾，並攜帶水壺與毛巾。"; // 預約成功信和上課提醒信都會附上
@@ -249,7 +250,7 @@ function placeLines(b) {
 function partnerLines(b) {
   const list = b.partners || [];
   if (!list.length) return "";
-  return `同行夥伴：${list.map((x) => x.name).join("、")}（共 ${list.length + 1} 人）\n同行夥伴不會另外收到信，麻煩幫忙轉告上課時間與地點喔！\n\n`;
+  return `同行朋友：${list.map((x) => x.name).join("、")}（共 ${list.length + 1} 人）\n朋友不會另外收到信，麻煩幫忙轉告上課時間與地點喔！\n\n`;
 }
 
 function mailBooked(origin, b) {
@@ -259,7 +260,7 @@ function mailBooked(origin, b) {
     subject: `預約完成：${b.when} ${b.service}`,
     body: `${b.name} 您好，\n\n已為您預約好 ${b.when} ${atRoom(b)}${b.service}！\n${partnerLines(b)}${PREP_NOTE}${placeLines(b)}\n\n期待當天見面！\n\n如需取消，請在開課前 ${CANCEL_BEFORE_HOURS} 小時以前使用這個連結：\n${link}\n開課前 ${CANCEL_BEFORE_HOURS} 小時內需要取消或改時間，請直接回覆這封信或傳訊息給我。${SIGN}`,
     teacherSubject: `新預約：${b.when} ${b.service}（${b.name}）`,
-    teacherBody: `新預約\n\n課程：${b.service}\n時間：${b.when}\n教室：${b.room_name || "（未設定）"}\n人數：${1 + (b.partners || []).length} 人\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n${(b.partners || []).length ? `同行夥伴：${partnerText(b.partners)}\n` : ""}備註：${b.note || "（無）"}\n\n管理頁：${origin}/admin/booking`,
+    teacherBody: `新預約\n\n課程：${b.service}\n時間：${b.when}\n教室：${b.room_name || "（未設定）"}\n人數：${1 + (b.partners || []).length} 人\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n${(b.partners || []).length ? `同行朋友：${partnerText(b.partners)}\n` : ""}備註：${b.note || "（無）"}\n\n管理頁：${origin}/admin/booking`,
   };
 }
 function mailReminder(b) {
@@ -274,8 +275,8 @@ function mailCancelled(origin, b, byTeacher) {
     to: b.email,
     subject: `已取消預約：${b.when} ${b.service}`,
     body: byTeacher
-      ? `${b.name} 您好，\n\n很抱歉，以下這堂課老師這邊需要取消${b.seats > 1 ? `（含同行夥伴共 ${b.seats} 人，麻煩幫忙轉告）` : ""}：\n\n課程：${b.service}\n時間：${b.when}\n\n可以到 ${origin}/booking/ 看看其他時段，或直接回覆這封信跟我討論。${SIGN}`
-      : `${b.name} 您好，\n\n已為您取消這堂課${b.seats > 1 ? `（含同行夥伴共 ${b.seats} 人）` : ""}：\n\n課程：${b.service}\n時間：${b.when}\n\n謝謝您提早告知。之後想再預約，可以到 ${origin}/booking/ 選時段。${SIGN}`,
+      ? `${b.name} 您好，\n\n很抱歉，以下這堂課老師這邊需要取消${b.seats > 1 ? `（含朋友共 ${b.seats} 人，麻煩幫忙轉告）` : ""}：\n\n課程：${b.service}\n時間：${b.when}\n\n可以到 ${origin}/booking/ 看看其他時段，或直接回覆這封信跟我討論。${SIGN}`
+      : `${b.name} 您好，\n\n已為您取消這堂課${b.seats > 1 ? `（含朋友共 ${b.seats} 人）` : ""}：\n\n課程：${b.service}\n時間：${b.when}\n\n謝謝您提早告知。之後想再預約，可以到 ${origin}/booking/ 選時段。${SIGN}`,
     ...(byTeacher ? {} : {
       teacherSubject: `學員取消：${b.when} ${b.service}（${b.name}）`,
       teacherBody: `學員自己取消了預約\n\n課程：${b.service}\n時間：${b.when}\n人數：${b.seats || 1} 人\n姓名：${b.name}\nEmail：${b.email}\n\n管理頁：${origin}/admin/booking`,
@@ -320,7 +321,7 @@ async function sendReminders(env, ctx) {
     const head = `${zhWhen(x.starts_at, x.minutes).split("）")[1]}　${x.service}${x.room_name ? "　📍" + x.room_name : ""}（${seats}/${x.capacity} 人）${x.status === "closed" ? "［已關閉］" : ""}`;
     const people = bs.map((b) => {
       const ps = parsePartners(b.partners);
-      return `  ・${b.name}　${b.contact || b.email}` + (ps.length ? `\n    同行：${partnerText(ps, "、")}` : "") + (b.note ? `\n    備註：${b.note}` : "");
+      return `  ・${b.name}　${b.contact || b.email}` + (ps.length ? `\n    朋友：${partnerText(ps, "、")}` : "") + (b.note ? `\n    備註：${b.note}` : "");
     });
     return [head, ...(people.length ? people : ["  （還沒有人預約）"])].join("\n");
   });
@@ -525,7 +526,7 @@ async function listSlots(env) {
   ).bind(twNow(BOOK_BEFORE_HOURS)).all();
   const items = (results || []).map((r) => ({
     id: r.id, service: r.service, date: r.starts_at.slice(0, 10), when: zhWhen(r.starts_at, r.minutes),
-    left: Math.max(0, r.capacity - r.taken), room: r.room || "", group: needsPartners(r.service),
+    left: Math.max(0, r.capacity - r.taken), room: r.room || "", group: needsPartners(r.service), friends: friendsFor(r.service),
   }));
   return json({ ok: true, items, bookBeforeHours: BOOK_BEFORE_HOURS, cancelBeforeHours: CANCEL_BEFORE_HOURS }, 200, { "cache-control": "no-store" });
 }
@@ -542,14 +543,14 @@ async function book(req, env, ctx, url, user) {
   const slot = await env.DB.prepare("SELECT service FROM slots WHERE id = ?").bind(slotId).first();
   if (!slot) return json({ ok: false, error: "找不到這個時段，請重新整理頁面。", full: true }, 404);
   let partners = [];
-  if (needsPartners(slot.service)) {
-    if (contact.length < 6) return json({ ok: false, error: "小團體課請填寫你的聯絡電話" }, 400);
-    const raw = Array.isArray(d.partners) ? d.partners.slice(0, MAX_PARTNERS + 1) : [];
+  const need = friendsFor(slot.service);
+  if (need) {
+    if (contact.length < 6) return json({ ok: false, error: `${slot.service}請填寫你的聯絡電話` }, 400);
+    const raw = Array.isArray(d.partners) ? d.partners.slice(0, need + 2) : [];
     partners = raw.map((x) => ({ name: String((x && x.name) || "").trim().slice(0, 30), phone: String((x && x.phone) || "").trim().slice(0, 30) }))
       .filter((x) => x.name || x.phone);
-    if (!partners.length) return json({ ok: false, error: "小團體課需要自己約同伴，請填寫至少一位同行夥伴" }, 400);
-    if (partners.length > MAX_PARTNERS) return json({ ok: false, error: `同行夥伴最多 ${MAX_PARTNERS} 位` }, 400);
-    if (partners.some((x) => !x.name || x.phone.length < 6)) return json({ ok: false, error: "請填寫每一位同行夥伴的姓名和電話" }, 400);
+    if (partners.length !== need || partners.some((x) => !x.name || x.phone.length < 6))
+      return json({ ok: false, error: `${slot.service}是 ${need + 1} 人一起上課，請填寫朋友的姓名和電話` }, 400);
   }
   const seats = 1 + partners.length;
   const since = new Date(Date.now() - 86400 * 1000).toISOString();
@@ -634,7 +635,7 @@ async function bookingAdminPage(env, url) {
     const head = s.starts_at.slice(0, 10) !== lastDate ? `<h2 class="day">${esc(zhWhen(s.starts_at, s.minutes).split("）")[0])}）</h2>` : "";
     lastDate = s.starts_at.slice(0, 10);
     const people = bs.map((b) => `<li class="b-${b.status}"><div><b>${esc(b.name)}</b>${(b.seats || 1) > 1 ? `（${b.seats} 人）` : ""}　<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>${b.contact ? "　" + esc(b.contact) : ""}${b.status === "cancelled" ? '　<span class="x">已取消</span>' : ""}
-${parsePartners(b.partners).map((x) => `<div class="note">同行：${esc(x.name)}　${esc(x.phone)}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
+${parsePartners(b.partners).map((x) => `<div class="note">朋友：${esc(x.name)}　${esc(x.phone)}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
     const full = taken >= s.capacity;
     const state = s.status === "closed" ? '<span class="tag closed">已關閉</span>' : full ? '<span class="tag full">額滿</span>' : '<span class="tag">開放中</span>';
     const toggle = s.status === "closed"
@@ -657,7 +658,7 @@ ${parsePartners(b.partners).map((x) => `<div class="note">同行：${esc(x.name)
   const roomSection = `<details class="rooms"${rooms.length ? "" : " open"}><summary>教室設定（${rooms.length} 間）</summary>
 <p class="hint">學員會在預約頁、預約成功信和上課提醒信看到這裡填的教室名稱、地址和指引連結。</p>
 ${rooms.map(roomForm).join("")}<h3>新增教室</h3>${roomForm(null)}</details>`;
-  const svcOpts = Object.entries(SERVICES).map(([n, c]) => `<option value="${esc(n)}" data-cap="${c.capacity}">${esc(n)}</option>`).join("");
+  const svcOpts = Object.entries(SERVICES).map(([n, c]) => `<option value="${esc(n)}" data-cap="${c.capacity}"${c.friends ? ` data-fixed="1"` : ""}>${esc(n)}</option>`).join("");
   const warns = [];
   if (!mailOn(env)) warns.push("還沒有設定寄信（MAIL_URL、MAIL_SECRET）：學員收不到確認信，也不能用 Email 登入。");
   if (!googleOn(env)) warns.push("還沒有設定 Google 登入（GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET）。");
@@ -692,7 +693,8 @@ ${roomField}
 ${cards}${roomSection}</main>
 <script>
 const f=document.getElementById("add");
-f.service.addEventListener("change",()=>{f.capacity.value=f.service.selectedOptions[0].dataset.cap});
+const syncCap=()=>{const o=f.service.selectedOptions[0];f.capacity.value=o.dataset.cap;f.capacity.readOnly=!!o.dataset.fixed;f.capacity.title=o.dataset.fixed?"這個服務固定 "+o.dataset.cap+" 人一起上課":""};
+f.service.addEventListener("change",syncCap);syncCap();
 async function send(body){const r=await fetch("/admin/booking/action",{method:"POST",headers:{"content-type":"application/json","x-requested-with":"admin"},body:JSON.stringify(body)});let j={};try{j=await r.json()}catch{}if(r.ok&&j.ok)location.reload();else alert(j.error||"失敗了，請再試一次");}
 f.addEventListener("submit",async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;
 await send({action:"add",service:f.service.value,room:f.room?Number(f.room.value)||0:0,date:f.date.value,time:f.time.value,minutes:Number(f.minutes.value),capacity:Number(f.capacity.value),weeks:Number(f.weeks.value)});b.disabled=false});
@@ -719,6 +721,7 @@ async function bookingAdminAction(req, env, ctx, url) {
     const minutes = Number(d.minutes), capacity = Number(d.capacity), weeks = Number(d.weeks) || 1;
     if (!Number.isInteger(minutes) || minutes < 15 || minutes > 240) return json({ ok: false, error: "課程長度請填 15–240 分鐘" }, 400);
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return json({ ok: false, error: "人數上限請填 1–20" }, 400);
+    if (friendsFor(d.service) && capacity !== SERVICES[d.service].capacity) return json({ ok: false, error: `${d.service}固定 ${SERVICES[d.service].capacity} 人一起上課` }, 400);
     if (!Number.isInteger(weeks) || weeks < 1 || weeks > 12) return json({ ok: false, error: "重複週數不正確" }, 400);
     const roomCount = await env.DB.prepare("SELECT COUNT(*) AS n FROM rooms").first();
     let roomId = null;

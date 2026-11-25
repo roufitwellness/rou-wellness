@@ -152,9 +152,9 @@
       b.appendChild(el('span','t',s.when.split('）')[1]));
       b.appendChild(el('span','s',s.service));
       if(s.room)b.appendChild(el('span','r','📍'+s.room));
-      var tooFew=s.group&&s.left===1;
-      b.appendChild(el('span','n',s.left<=0?'已額滿':tooFew?'剩 1 位（需 2 人以上）':s.group?'剩 '+s.left+' 位・需自己約同伴':(s.left===1?'可預約':'剩 '+s.left+' 位')));
-      if(s.left<=0||tooFew){b.disabled=true}
+      var need=1+(s.friends||0),full=s.left<need;
+      b.appendChild(el('span','n',full?'已額滿':s.friends?need+' 人課・需自己找'+(s.friends===1?'一位':s.friends+' 位')+'朋友':(s.left===1?'可預約':'剩 '+s.left+' 位')));
+      if(full){b.disabled=true}
       else b.addEventListener('click',function(){chosen=s;render();openForm()});
       grid.appendChild(b);
     });
@@ -175,11 +175,11 @@
 
   // ---------- 小團體課的同行夥伴 ----------
   var prows=$('bk-partner-rows'),addP=$('bk-add-partner');
-  function maxPartners(){return chosen?Math.min(5,Math.max(0,chosen.left-1)):0}
+  function maxPartners(){return chosen?(chosen.friends||0):0}
   function partnerRow(first){
     var row=el('div','bk-prow');
-    var n=el('input');n.name='pname';n.placeholder='同伴姓名';n.maxLength=30;n.autocomplete='off';
-    var t=el('input');t.name='pphone';t.placeholder='同伴電話';t.maxLength=30;t.type='tel';t.autocomplete='off';
+    var n=el('input');n.name='pname';n.placeholder='朋友的姓名';n.maxLength=30;n.autocomplete='off';
+    var t=el('input');t.name='pphone';t.placeholder='朋友的電話';t.maxLength=30;t.type='tel';t.autocomplete='off';
     row.appendChild(n);row.appendChild(t);
     if(!first){var x=el('button','linkish','移除');x.type='button';x.addEventListener('click',function(){row.remove();syncAdd()});row.appendChild(x)}
     prows.appendChild(row);syncAdd();return row;
@@ -192,8 +192,8 @@
     form.contact.required=g;
     $('bk-contact-hint').textContent=g?'（小團體課必填，臨時有變動時方便聯絡你）':'（選填，臨時有變動時方便聯絡你）';
     if(g){
-      while(prows.children.length>maxPartners()&&prows.children.length>1)prows.lastChild.remove();
-      if(!prows.children.length)partnerRow(true);
+      while(prows.children.length>maxPartners())prows.lastChild.remove();
+      while(prows.children.length<maxPartners())partnerRow(true);
       syncAdd();
     }
   }
@@ -215,7 +215,7 @@
           place.appendChild(el('p',null,'地點：'+d.room+(d.roomAddress?'（'+d.roomAddress+'）':'')));
           if(d.roomUrl){var pa=el('p');pa.appendChild(document.createTextNode('地址與交通指引：'));var a=el('a',null,'打開指引');a.href=d.roomUrl;a.target='_blank';a.rel='noopener';pa.appendChild(a);place.appendChild(pa)}
         }
-        if(d.partners&&d.partners.length)place.appendChild(el('p',null,'同行夥伴：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。同行夥伴不會收到信，麻煩幫忙轉告喔！'));
+        if(d.partners&&d.partners.length)place.appendChild(el('p',null,'一起上課的朋友：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。朋友不會收到信，麻煩幫忙轉告喔！'));
         if(d.prep)place.appendChild(el('p',null,d.prep));
         $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
         $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
