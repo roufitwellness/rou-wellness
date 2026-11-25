@@ -106,7 +106,7 @@
       $('bk-mine').hidden=!items.length;
       items.forEach(function(b){
         var li=el('li');
-        var txt=el('div');txt.appendChild(el('b',null,b.when));txt.appendChild(el('span','s',b.service+(b.room?'・'+b.room:'')));li.appendChild(txt);
+        var txt=el('div');txt.appendChild(el('b',null,b.when));txt.appendChild(el('span','s',b.service+(b.seats>1?'（'+b.seats+' 人）':'')+(b.room?'・'+b.room:'')));li.appendChild(txt);
         if(b.canCancel){
           var c=el('button','linkish','取消');c.type='button';
           c.addEventListener('click',function(){
@@ -152,8 +152,9 @@
       b.appendChild(el('span','t',s.when.split('）')[1]));
       b.appendChild(el('span','s',s.service));
       if(s.room)b.appendChild(el('span','r','📍'+s.room));
-      b.appendChild(el('span','n',s.left>0?(s.service.indexOf('一對一')>=0?'可預約':'剩 '+s.left+' 位'):'已額滿'));
-      if(s.left<=0){b.disabled=true}
+      var tooFew=s.group&&s.left===1;
+      b.appendChild(el('span','n',s.left<=0?'已額滿':tooFew?'剩 1 位（需 2 人以上）':s.group?'剩 '+s.left+' 位・需自己約同伴':(s.left===1?'可預約':'剩 '+s.left+' 位')));
+      if(s.left<=0||tooFew){b.disabled=true}
       else b.addEventListener('click',function(){chosen=s;render();openForm()});
       grid.appendChild(b);
     });
@@ -166,15 +167,45 @@
       return;
     }
     $('bk-chosen').textContent=chosen.service+'　'+chosen.when;
+    setupPartners();
     form.hidden=false;fmsg.textContent='';
     form.scrollIntoView({behavior:'smooth',block:'start'});
     if(!form.name.value)setTimeout(function(){form.name.focus({preventScroll:true})},300);
   }
 
+  // ---------- 小團體課的同行夥伴 ----------
+  var prows=$('bk-partner-rows'),addP=$('bk-add-partner');
+  function maxPartners(){return chosen?Math.min(5,Math.max(0,chosen.left-1)):0}
+  function partnerRow(first){
+    var row=el('div','bk-prow');
+    var n=el('input');n.name='pname';n.placeholder='同伴姓名';n.maxLength=30;n.autocomplete='off';
+    var t=el('input');t.name='pphone';t.placeholder='同伴電話';t.maxLength=30;t.type='tel';t.autocomplete='off';
+    row.appendChild(n);row.appendChild(t);
+    if(!first){var x=el('button','linkish','移除');x.type='button';x.addEventListener('click',function(){row.remove();syncAdd()});row.appendChild(x)}
+    prows.appendChild(row);syncAdd();return row;
+  }
+  function syncAdd(){addP.hidden=prows.children.length>=maxPartners()}
+  addP.addEventListener('click',function(){partnerRow(false).querySelector('input').focus()});
+  function setupPartners(){
+    var g=!!(chosen&&chosen.group);
+    $('bk-partners').hidden=!g;
+    form.contact.required=g;
+    $('bk-contact-hint').textContent=g?'（小團體課必填，臨時有變動時方便聯絡你）':'（選填，臨時有變動時方便聯絡你）';
+    if(g){
+      while(prows.children.length>maxPartners()&&prows.children.length>1)prows.lastChild.remove();
+      if(!prows.children.length)partnerRow(true);
+      syncAdd();
+    }
+  }
+  function collectPartners(){
+    if(!(chosen&&chosen.group))return [];
+    return [].map.call(prows.children,function(r){return {name:r.querySelector('[name=pname]').value,phone:r.querySelector('[name=pphone]').value}});
+  }
+
   form.addEventListener('submit',function(e){
     e.preventDefault();if(!chosen)return;
     var btn=form.querySelector('button[type=submit]');btn.disabled=true;fmsg.textContent='';
-    api('/api/booking',{slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value}).then(function(x){
+    api('/api/booking',{slot_id:chosen.id,name:form.name.value,contact:form.contact.value,note:form.note.value,partners:collectPartners()}).then(function(x){
       btn.disabled=false;
       if(x.ok){
         var d=x.j;
@@ -184,6 +215,7 @@
           place.appendChild(el('p',null,'地點：'+d.room+(d.roomAddress?'（'+d.roomAddress+'）':'')));
           if(d.roomUrl){var pa=el('p');pa.appendChild(document.createTextNode('地址與交通指引：'));var a=el('a',null,'打開指引');a.href=d.roomUrl;a.target='_blank';a.rel='noopener';pa.appendChild(a);place.appendChild(pa)}
         }
+        if(d.partners&&d.partners.length)place.appendChild(el('p',null,'同行夥伴：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。同行夥伴不會收到信，麻煩幫忙轉告喔！'));
         if(d.prep)place.appendChild(el('p',null,d.prep));
         $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
         $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
@@ -194,7 +226,7 @@
     }).catch(function(){btn.disabled=false;fmsg.textContent=FAIL});
   });
   $('bk-again').addEventListener('click',function(){
-    chosen=null;form.hidden=true;form.note.value='';
+    chosen=null;form.hidden=true;form.note.value='';prows.textContent='';
     $('bk-done').hidden=true;$('bk-main').hidden=false;loadMine();fetchSlots();window.scrollTo(0,0);
   });
 
