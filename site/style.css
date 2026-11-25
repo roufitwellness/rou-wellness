@@ -218,3 +218,4 @@ a.ser:hover{color:var(--accent);text-decoration:underline}
 .bk-form .bk-agree{display:flex;align-items:flex-start;gap:10px;font-size:15px;cursor:pointer}
 .bk-box .bk-agree input{width:20px;height:20px;padding:0;margin:4px 0 0;flex-shrink:0;accent-color:var(--accent)}
 .bk-form .bk-agree span{font-size:15px;color:var(--ink)}
+.bk-deposit{margin-top:6px!important;padding:10px 14px;border-radius:12px;background:#fff;border:1px solid var(--line)}

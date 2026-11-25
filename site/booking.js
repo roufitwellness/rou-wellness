@@ -173,7 +173,7 @@
     if(!form.name.value)setTimeout(function(){form.name.focus({preventScroll:true})},300);
   }
 
-  // ---------- 小團體課的同行夥伴 ----------
+  // ---------- 一對二課程的同行朋友 ----------
   var prows=$('bk-partner-rows'),addP=$('bk-add-partner');
   function maxPartners(){return chosen?(chosen.friends||0):0}
   function partnerRow(first){
@@ -191,7 +191,7 @@
     var g=!!(chosen&&chosen.group);
     $('bk-partners').hidden=!g;
     form.contact.required=g;
-    $('bk-contact-hint').textContent=g?'（小團體課必填，臨時有變動時方便聯絡你）':'（選填，臨時有變動時方便聯絡你）';
+    $('bk-contact-hint').textContent=g?'（一對二課程必填，臨時有變動時方便聯絡你）':'（選填，臨時有變動時方便聯絡你）';
     if(g){
       while(prows.children.length>maxPartners())prows.lastChild.remove();
       while(prows.children.length<maxPartners())partnerRow(true);
@@ -219,6 +219,7 @@
         }
         if(d.partners&&d.partners.length)place.appendChild(el('p',null,'一起上課的朋友：'+d.partners.join('、')+'（共 '+(d.partners.length+1)+' 人）。'+(d.friendMail?'朋友也會收到確認信和上課提醒。':'朋友不會收到信，麻煩幫忙轉告喔！')));
         if(d.prep)place.appendChild(el('p',null,d.prep));
+        if(d.deposit){var dp=el('p','bk-deposit');dp.appendChild(el('b',null,'訂金：'));dp.appendChild(document.createTextNode(d.deposit+' '));var la=el('a',null,'打開官方 LINE');la.href=d.lineUrl;la.target='_blank';la.rel='noopener';dp.appendChild(la);place.appendChild(dp)}
         $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
         $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
       }

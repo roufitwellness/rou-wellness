@@ -432,7 +432,7 @@ def main():
         '<label>姓名<input name="name" maxlength="30" autocomplete="name" required></label>'
         '<label>電話或 LINE<span id="bk-contact-hint">（選填，臨時有變動時方便聯絡你）</span><input name="contact" maxlength="60" autocomplete="tel"></label>'
         '<fieldset id="bk-partners" class="bk-partners" hidden><legend>一起上課的朋友</legend>'
-        '<p class="bk-rule">小團體課是兩人課，請自己找一位朋友一起來，並填上朋友的姓名和電話，方便臨時有變動時聯絡。有填 Email 的話，朋友也會收到確認信和上課前一天的提醒。</p>'
+        '<p class="bk-rule">一對二課程是兩人課，請自己找一位朋友一起來，並填上朋友的姓名和電話，方便臨時有變動時聯絡。有填 Email 的話，朋友也會收到確認信和上課前一天的提醒。</p>'
         '<div id="bk-partner-rows" class="bk-prows"></div>'
         '<button type="button" id="bk-add-partner" class="linkish" hidden>＋ 再加一位朋友</button></fieldset>'
         '<label>想讓老師知道的事<span>（選填，例如最近哪裡不舒服、想加強的地方）</span><textarea name="note" rows="3" maxlength="300"></textarea></label>'

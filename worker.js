@@ -36,6 +36,7 @@ const BOOKING_SCHEMA = [
   partners TEXT NOT NULL DEFAULT '',
   terms_version TEXT,
   agreed_at TEXT,
+  paid_at TEXT,
   ip_hash TEXT
 )`,
   `CREATE INDEX IF NOT EXISTS bookings_slot ON bookings (slot_id, status)`,
@@ -55,6 +56,7 @@ const BOOKING_SCHEMA = [
   guide_url TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 )`,
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS login_links (
   token_hash TEXT PRIMARY KEY,
@@ -69,12 +71,21 @@ const BOOKING_SCHEMA = [
 async function migrate(env) {
   const add = [["slots", "room_id", "INTEGER"], ["bookings", "reminded_at", "TEXT"],
     ["bookings", "seats", "INTEGER NOT NULL DEFAULT 1"], ["bookings", "partners", "TEXT NOT NULL DEFAULT ''"],
-    ["bookings", "terms_version", "TEXT"], ["bookings", "agreed_at", "TEXT"]];
+    ["bookings", "terms_version", "TEXT"], ["bookings", "agreed_at", "TEXT"], ["bookings", "paid_at", "TEXT"]];
   for (const [table, col, type] of add) {
     const { results } = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
     if (!(results || []).some((c) => c.name === col)) await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run();
   }
+  await env.DB.batch(Object.entries(RENAMED).map(([a, b]) => env.DB.prepare("UPDATE slots SET service = ? WHERE service = ?").bind(b, a)));
 }
+async function getSetting(env, key) {
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+  return r ? r.value : "";
+}
+const setSetting = (env, key, value) =>
+  env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, value).run();
+// 訂金制度開啟的時間（ISO 字串）；空字串代表關閉。只有開啟之後的預約需要付訂金
+const depositSince = (env) => getSetting(env, "deposit_since");
 let ready = null;
 async function init(env) {
   if (!ready) {
@@ -189,9 +200,18 @@ async function adminAction(req, env, url) {
 // capacity：人數上限；friends：學員要自己找幾位朋友一起來（預約時要填朋友的姓名和電話）。
 // 有 friends 的服務是「一組包下整個時段」，人數上限固定是 1 + friends。
 const SERVICES = {
-  "一對一皮拉提斯": { capacity: 1 },
-  "小團體皮拉提斯": { capacity: 2, friends: 1 },
+  "基礎客製一對一器械式皮拉提斯課程": { capacity: 1 },
+  "一對二器械式皮拉提斯課程": { capacity: 2, friends: 1 },
 };
+// 改過名字的服務：舊名稱 → 新名稱（已經開好的時段會自動換成新名稱）
+const RENAMED = { "一對一皮拉提斯": "基礎客製一對一器械式皮拉提斯課程", "小團體皮拉提斯": "一對二器械式皮拉提斯課程" };
+
+// 訂金制度（在管理頁開關）：開啟後，預約要在 DEPOSIT_HOURS 小時內付訂金，老師在管理頁標記「已付訂金」，沒標記的會自動取消
+const DEPOSIT_AMOUNT = 500;
+const DEPOSIT_HOURS = 24;
+const LINE_URL = "https://lin.ee/RPa9rku";
+const SITE_ORIGIN = "https://rou-wellness.roufitwellness.workers.dev"; // 排程寄信時沒有網址可參考，用這個
+const depositNote = () => `請於 ${DEPOSIT_HOURS} 小時內至官方 LINE（${LINE_URL}）取得付款連結並支付訂金 ${DEPOSIT_AMOUNT} 元，再於 LINE 回傳後五碼或截圖。逾期未付款，預約將自動取消。`;
 const friendsFor = (service) => (SERVICES[service] && SERVICES[service].friends) || 0;
 const needsPartners = (service) => friendsFor(service) > 0;
 const BOOK_BEFORE_HOURS = 12; // 開課前幾小時停止線上預約
@@ -268,10 +288,40 @@ function friendMail(kind, b, f, byTeacher) {
   return { to: f.email, subject: `已取消預約：${b.when} ${b.service}`,
     body: `${f.name} 您好，\n\n${byTeacher ? "很抱歉，以下這堂課老師這邊需要取消" : `${b.name} 已取消以下這堂課`}：\n\n課程：${b.service}\n時間：${b.when}\n\n有任何問題，直接回覆這封信就可以了。${SIGN}` };
 }
+function mailUnpaid(origin, b) {
+  return {
+    to: b.email,
+    subject: `預約已取消（未收到訂金）：${b.when} ${b.service}`,
+    body: `${b.name} 您好，\n\n很抱歉，因為預約後 ${DEPOSIT_HOURS} 小時內沒有收到訂金，以下預約已自動取消，時段也已經釋出：\n\n課程：${b.service}\n時間：${b.when}\n\n如果您其實已經付款，請直接回覆這封信或傳 LINE 給我，我會盡快為您處理。想重新預約，可以到 ${origin}/booking/ 選時段。${SIGN}`,
+    teacherSubject: `未付訂金，已自動取消：${b.when} ${b.service}（${b.name}）`,
+    teacherBody: `這筆預約在 ${DEPOSIT_HOURS} 小時內沒有被標記「已付訂金」，系統已自動取消並通知學員。\n\n課程：${b.service}\n時間：${b.when}\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n\n如果其實有收到款項，請聯絡學員重新預約。`,
+  };
+}
 // 寄給預約人，朋友有留 Email 的話也一起寄。b.partners 要是已解析的陣列
 function notify(env, ctx, kind, origin, b, byTeacher = false) {
-  sendMail(env, ctx, kind === "booked" ? mailBooked(origin, b) : kind === "reminder" ? mailReminder(b) : mailCancelled(origin, b, byTeacher));
-  for (const f of b.partners || []) if (f.email) sendMail(env, ctx, friendMail(kind, b, f, byTeacher));
+  const main = kind === "booked" ? mailBooked(origin, b) : kind === "reminder" ? mailReminder(b)
+    : kind === "unpaid" ? mailUnpaid(origin, b) : mailCancelled(origin, b, byTeacher);
+  sendMail(env, ctx, main);
+  for (const f of b.partners || []) if (f.email) sendMail(env, ctx, friendMail(kind === "unpaid" ? "cancelled" : kind, b, f, kind === "unpaid" || byTeacher));
+}
+
+// 每小時：訂金制度開啟時，把超過時限還沒標記「已付訂金」的預約自動取消
+async function cancelUnpaid(env, ctx) {
+  if (!env.DB) return;
+  await init(env);
+  const since = await depositSince(env);
+  if (!since) return;
+  const deadline = new Date(Date.now() - DEPOSIT_HOURS * 3600 * 1000).toISOString();
+  const { results } = await env.DB.prepare(
+    `SELECT b.*, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id
+     WHERE b.status = 'booked' AND b.paid_at IS NULL AND b.created_at >= ? AND b.created_at < ? AND s.starts_at > ?`
+  ).bind(since, deadline, twNow()).all();
+  for (const b of results || []) {
+    const r = await env.DB.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'booked' AND paid_at IS NULL")
+      .bind(new Date().toISOString(), b.id).run();
+    if (r.meta && r.meta.changes === 1 && mailOn(env))
+      notify(env, ctx, "unpaid", SITE_ORIGIN, { ...b, partners: parsePartners(b.partners), when: zhWhen(b.starts_at, b.minutes) });
+  }
 }
 
 function mailBooked(origin, b) {
@@ -279,7 +329,7 @@ function mailBooked(origin, b) {
   return {
     to: b.email,
     subject: `預約完成：${b.when} ${b.service}`,
-    body: `${b.name} 您好，\n\n已為您預約好 ${b.when} ${atRoom(b)}${b.service}！\n${partnerLines(b)}${PREP_NOTE}${placeLines(b)}\n\n期待當天見面！\n\n如需取消，請在開課前 ${CANCEL_BEFORE_HOURS} 小時以前使用這個連結：\n${link}\n開課前 ${CANCEL_BEFORE_HOURS} 小時內需要取消或改時間，請直接回覆這封信或傳訊息給我。${SIGN}`,
+    body: `${b.name} 您好，\n\n已為您預約好 ${b.when} ${atRoom(b)}${b.service}！\n${b.deposit ? `\n【訂金】${depositNote()}\n\n` : ""}${partnerLines(b)}${PREP_NOTE}${placeLines(b)}\n\n期待當天見面！\n\n如需取消，請在開課前 ${CANCEL_BEFORE_HOURS} 小時以前使用這個連結：\n${link}\n開課前 ${CANCEL_BEFORE_HOURS} 小時內需要取消或改時間，請直接回覆這封信或傳訊息給我。${SIGN}`,
     teacherSubject: `新預約：${b.when} ${b.service}（${b.name}）`,
     teacherBody: `新預約\n\n課程：${b.service}\n時間：${b.when}\n教室：${b.room_name || "（未設定）"}\n人數：${1 + (b.partners || []).length} 人\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n${(b.partners || []).length ? `同行朋友：${partnerText(b.partners)}\n` : ""}備註：${b.note || "（無）"}\n\n管理頁：${origin}/admin/booking`,
   };
@@ -602,8 +652,9 @@ async function book(req, env, ctx, url, user) {
   await env.DB.prepare("UPDATE users SET name = ?, phone = ? WHERE id = ?").bind(name, contact, user.id).run();
   const s = await env.DB.prepare(`SELECT s.service, s.starts_at, s.minutes, ${ROOM_COLS} FROM slots s ${ROOM_JOIN} WHERE s.id = ?`).bind(slotId).first();
   const when = zhWhen(s.starts_at, s.minutes);
-  notify(env, ctx, "booked", url.origin, { ...s, token, when, name, email, contact, note, partners });
-  return json({ ok: true, service: s.service, when, email, mail: mailOn(env), prep: PREP_NOTE, partners: partners.map((x) => x.name), friendMail: partners.length > 0 && partners.every((x) => x.email) && mailOn(env),
+  const deposit = Boolean(await depositSince(env));
+  notify(env, ctx, "booked", url.origin, { ...s, token, when, name, email, contact, note, partners, deposit });
+  return json({ ok: true, service: s.service, when, email, mail: mailOn(env), prep: PREP_NOTE, deposit: deposit ? depositNote() : "", lineUrl: LINE_URL, partners: partners.map((x) => x.name), friendMail: partners.length > 0 && partners.every((x) => x.email) && mailOn(env),
     room: s.room_name || "", roomAddress: s.room_address || "", roomUrl: s.room_url || "" });
 }
 
@@ -649,10 +700,17 @@ async function bookingAdminPage(env, url) {
   const bySlot = {};
   if (ids.length) {
     const { results: bs } = await env.DB.prepare(
-      `SELECT id, slot_id, name, email, contact, note, status, created_at, seats, partners FROM bookings WHERE slot_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`
+      `SELECT id, slot_id, name, email, contact, note, status, created_at, seats, partners, paid_at FROM bookings WHERE slot_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`
     ).bind(...ids).all();
     for (const b of bs || []) (bySlot[b.slot_id] ||= []).push(b);
   }
+  const since = await depositSince(env);
+  const payInfo = (b) => {
+    if (!since || b.status !== "booked" || b.created_at < since) return "";
+    if (b.paid_at) return `<div class="pay paid">💰 已付訂金 <button class="link" data-a="unpaid" data-id="${b.id}">取消標記</button></div>`;
+    const due = new Date(Date.parse(b.created_at) + (DEPOSIT_HOURS + 8) * 3600 * 1000).toISOString().slice(5, 16).replace("-", "/").replace("T", " ");
+    return `<div class="pay due">⏳ 等待訂金（${due} 前，沒標記會自動取消）<button class="go" data-a="paid" data-id="${b.id}">標記已付訂金</button></div>`;
+  };
   let lastDate = "";
   const cards = (slots || []).map((s) => {
     const bs = bySlot[s.id] || [];
@@ -661,7 +719,7 @@ async function bookingAdminPage(env, url) {
     const head = s.starts_at.slice(0, 10) !== lastDate ? `<h2 class="day">${esc(zhWhen(s.starts_at, s.minutes).split("）")[0])}）</h2>` : "";
     lastDate = s.starts_at.slice(0, 10);
     const people = bs.map((b) => `<li class="b-${b.status}"><div><b>${esc(b.name)}</b>${(b.seats || 1) > 1 ? `（${b.seats} 人）` : ""}　<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>${b.contact ? "　" + esc(b.contact) : ""}${b.status === "cancelled" ? '　<span class="x">已取消</span>' : ""}
-${parsePartners(b.partners).map((x) => `<div class="note">朋友：${esc(x.name)}　${esc(x.phone)}${x.email ? "　" + esc(x.email) : ""}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
+${parsePartners(b.partners).map((x) => `<div class="note">朋友：${esc(x.name)}　${esc(x.phone)}${x.email ? "　" + esc(x.email) : ""}</div>`).join("")}${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}${payInfo(b)}</div>${b.status === "booked" ? `<button class="del" data-a="cancel-booking" data-id="${b.id}">取消</button>` : ""}</li>`).join("");
     const full = taken >= s.capacity;
     const state = s.status === "closed" ? '<span class="tag closed">已關閉</span>' : full ? '<span class="tag full">額滿</span>' : '<span class="tag">開放中</span>';
     const toggle = s.status === "closed"
@@ -692,6 +750,9 @@ ${rooms.map(roomForm).join("")}<h3>新增教室</h3>${roomForm(null)}</details>`
   if (!rooms.length) warns.push("還沒有新增教室：請到最下面的「教室設定」新增，學員才看得到上課地點。");
   if (!env.TURNSTILE_SECRET || !env.TURNSTILE_SITE_KEY) warns.push("還沒有設定 Turnstile 機器人驗證（TURNSTILE_SITE_KEY、TURNSTILE_SECRET）。");
   const mailHint = warns.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join("");
+  const depositBox = since
+    ? `<div class="dep on"><div><b>訂金制度：開啟中</b><p>預約後 ${DEPOSIT_HOURS} 小時內沒有被標記「已付訂金」的預約，會自動取消並寄信通知學員。確認信會附上付款說明。</p></div><button data-a="deposit-off" data-id="0">關閉</button></div>`
+    : `<div class="dep"><div><b>訂金制度：關閉中</b><p>開啟後，新預約的確認信會附上 LINE 付款說明（訂金 ${DEPOSIT_AMOUNT} 元），你在下面的預約旁按「標記已付訂金」；${DEPOSIT_HOURS} 小時內沒標記的會自動取消。開啟前的預約不受影響。</p></div><button class="go" data-a="deposit-on" data-id="0">開啟</button></div>`;
   const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>預約管理</title>
 <style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:680px;margin:0 auto;padding:24px 16px 60px}${NAV_CSS}h1{font-size:22px;margin:0 0 4px}.hint{color:#736861;font-size:14px;margin:0 0 20px}.warn{background:#FCEBDD;border-radius:12px;padding:8px 14px;font-size:14px;margin:0 0 8px}
 form.add{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:16px 18px;margin:0 0 24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}form.add h2{grid-column:1/-1;font-size:17px;margin:0}form.add label{display:grid;gap:4px;font-size:14px;color:#736861}form.add .full{grid-column:1/-1}
@@ -702,10 +763,12 @@ article{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px
 ul{list-style:none;margin:8px 0 0;padding:0}li{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px dashed #EBD7D9;word-break:break-word}li.b-cancelled{color:#A99D96}li a{color:#A25D69}.x{font-size:13px}.note{font-size:14px;color:#736861;white-space:pre-wrap}
 .btns{display:flex;gap:10px;margin-top:10px}button{font:inherit;font-size:14px;padding:5px 14px;border-radius:999px;border:1px solid #A25D69;background:#fff;color:#A25D69;cursor:pointer;white-space:nowrap}button.go{background:#A25D69;color:#fff}button.del{border-color:#C9B8B0;color:#736861}
 .room{font-size:14px;color:#736861}
+.dep{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:12px 16px;margin:0 0 16px}.dep.on{border-color:#2F6F5E}.dep p{margin:2px 0 0;font-size:13.5px;color:#736861}
+.pay{font-size:14px;margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.pay.paid{color:#2F6F5E}.pay.due{color:#A25D69}.pay button{font-size:13px;padding:2px 12px}button.link{border:0;background:none;color:#736861;text-decoration:underline;padding:0}
 details.rooms{margin-top:36px;background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px 18px}details.rooms summary{cursor:pointer;font-weight:500}details.rooms h3{font-size:15px;margin:18px 0 6px}
 .room-f{display:grid;gap:8px;padding:12px 0;border-top:1px dashed #EBD7D9}.room-f label{display:grid;gap:4px;font-size:14px;color:#736861}
 @media (max-width:520px){form.add{grid-template-columns:1fr}}</style></head>
-<body><main>${ADMIN_NAV("bk")}<h1>學員預約管理</h1><p class="hint">在這裡開放時段，學員登入後就能在 <a href="/booking/">/booking/</a> 頁面選時段（這個網址沒有放在網站選單上，請自己傳給學員），預約和取消都會寄信通知學員和你。開課前 ${BOOK_BEFORE_HOURS} 小時停止線上預約，${CANCEL_BEFORE_HOURS} 小時內學員不能自行取消。</p>${mailHint}
+<body><main>${ADMIN_NAV("bk")}<h1>學員預約管理</h1><p class="hint">在這裡開放時段，學員登入後就能在 <a href="/booking/">/booking/</a> 頁面選時段（這個網址沒有放在網站選單上，請自己傳給學員），預約和取消都會寄信通知學員和你。開課前 ${BOOK_BEFORE_HOURS} 小時停止線上預約，${CANCEL_BEFORE_HOURS} 小時內學員不能自行取消。</p>${mailHint}${depositBox}
 <form class="add" id="add"><h2>新增時段</h2>
 <label class="full">服務<select name="service">${svcOpts}</select></label>
 ${roomField}
@@ -727,6 +790,8 @@ await send({action:"add",service:f.service.value,room:f.room?Number(f.room.value
 document.querySelectorAll(".room-f").forEach(rf=>rf.addEventListener("submit",async e=>{e.preventDefault();const b=rf.querySelector("button");b.disabled=true;
 await send({action:rf.dataset.id?"room-save":"room-add",id:Number(rf.dataset.id)||0,name:rf.name.value,address:rf.address.value,url:rf.url.value});b.disabled=false}));
 document.addEventListener("click",async e=>{const b=e.target.closest("button[data-a]");if(!b)return;const a=b.dataset.a;
+if(a==="deposit-on"&&!confirm("開啟訂金制度後，從現在起的新預約都要在 24 小時內被標記「已付訂金」，否則會自動取消。確定開啟嗎？"))return;
+if(a==="deposit-off"&&!confirm("關閉後，不會再自動取消未付訂金的預約，確認信也不會附付款說明。確定關閉嗎？"))return;
 if(a==="room-delete"&&!confirm("確定要刪除這間教室嗎？已經開的時段會變成沒有地點，學員收到的信也不會有地址。"))return;
 if(a==="delete"&&!confirm(Number(b.dataset.n)>0?"這個時段還有學員預約，刪除後會寄取消通知給這些學員，預約紀錄也會一起刪掉。確定嗎？":"確定要刪除這個時段嗎？"))return;
 if(a==="cancel-booking"&&!confirm("確定要取消這位學員的預約嗎？系統會寄信通知學員。"))return;
@@ -783,9 +848,13 @@ async function bookingAdminAction(req, env, ctx, url) {
     else await env.DB.prepare("UPDATE rooms SET name = ?, address = ?, guide_url = ? WHERE id = ?").bind(name, address, guide, Number(d.id)).run();
     return json({ ok: true });
   }
+  if (d.action === "deposit-on") { if (!(await depositSince(env))) await setSetting(env, "deposit_since", new Date().toISOString()); return json({ ok: true }); }
+  if (d.action === "deposit-off") { await setSetting(env, "deposit_since", ""); return json({ ok: true }); }
   const id = Number(d.id);
   if (!Number.isInteger(id)) return json({ ok: false }, 400);
-  if (d.action === "room-delete") await env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(id).run();
+  if (d.action === "paid") await env.DB.prepare("UPDATE bookings SET paid_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
+  else if (d.action === "unpaid") await env.DB.prepare("UPDATE bookings SET paid_at = NULL WHERE id = ?").bind(id).run();
+  else if (d.action === "room-delete") await env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(id).run();
   else if (d.action === "close") await env.DB.prepare("UPDATE slots SET status = 'closed' WHERE id = ?").bind(id).run();
   else if (d.action === "open") await env.DB.prepare("UPDATE slots SET status = 'open' WHERE id = ?").bind(id).run();
   else if (d.action === "delete") {
@@ -811,7 +880,8 @@ async function bookingAdminAction(req, env, ctx, url) {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(sendReminders(env, ctx));
+    if (event.cron === "0 12 * * *") ctx.waitUntil(sendReminders(env, ctx)); // 每天晚上 8 點
+    else ctx.waitUntil(cancelUnpaid(env, ctx)); // 每小時檢查訂金
   },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
