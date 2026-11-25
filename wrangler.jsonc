@@ -2,6 +2,8 @@
   "name": "rou-wellness",
   "main": "worker.js",
   "keep_vars": true,
+  // 每天台灣時間晚上 8 點（世界時間中午 12 點）寄「明天上課提醒」
+  "triggers": { "crons": ["0 12 * * *"] },
   "compatibility_date": "2026-11-04",
   "assets": {
     "directory": "./site",

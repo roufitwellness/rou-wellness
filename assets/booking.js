@@ -106,7 +106,7 @@
       $('bk-mine').hidden=!items.length;
       items.forEach(function(b){
         var li=el('li');
-        var txt=el('div');txt.appendChild(el('b',null,b.when));txt.appendChild(el('span','s',b.service));li.appendChild(txt);
+        var txt=el('div');txt.appendChild(el('b',null,b.when));txt.appendChild(el('span','s',b.service+(b.room?'・'+b.room:'')));li.appendChild(txt);
         if(b.canCancel){
           var c=el('button','linkish','取消');c.type='button';
           c.addEventListener('click',function(){
@@ -151,6 +151,7 @@
       var b=el('button','bk-slot'+(chosen&&chosen.id===s.id?' on':''));b.type='button';
       b.appendChild(el('span','t',s.when.split('）')[1]));
       b.appendChild(el('span','s',s.service));
+      if(s.room)b.appendChild(el('span','r','📍'+s.room));
       b.appendChild(el('span','n',s.left>0?(s.service.indexOf('一對一')>=0?'可預約':'剩 '+s.left+' 位'):'已額滿'));
       if(s.left<=0){b.disabled=true}
       else b.addEventListener('click',function(){chosen=s;render();openForm()});
@@ -178,6 +179,12 @@
       if(x.ok){
         var d=x.j;
         $('bk-done-what').textContent=d.service+'　'+d.when;
+        var place=$('bk-done-place');place.textContent='';
+        if(d.room){
+          place.appendChild(el('p',null,'地點：'+d.room+(d.roomAddress?'（'+d.roomAddress+'）':'')));
+          if(d.roomUrl){var pa=el('p');pa.appendChild(document.createTextNode('地址與交通指引：'));var a=el('a',null,'打開指引');a.href=d.roomUrl;a.target='_blank';a.rel='noopener';pa.appendChild(a);place.appendChild(pa)}
+        }
+        if(d.prep)place.appendChild(el('p',null,d.prep));
         $('bk-done-mail').textContent=d.mail?'確認信已寄到 '+d.email+'。沒收到的話請看一下垃圾郵件匣。':'';
         $('bk-main').hidden=true;$('bk-done').hidden=false;window.scrollTo(0,0);return;
       }

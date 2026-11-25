@@ -11,6 +11,7 @@ const BOOKING_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS slots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   service TEXT NOT NULL,
+  room_id INTEGER,
   starts_at TEXT NOT NULL,
   minutes INTEGER NOT NULL DEFAULT 60,
   capacity INTEGER NOT NULL DEFAULT 1,
@@ -30,6 +31,7 @@ const BOOKING_SCHEMA = [
   token TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL,
   cancelled_at TEXT,
+  reminded_at TEXT,
   ip_hash TEXT
 )`,
   `CREATE INDEX IF NOT EXISTS bookings_slot ON bookings (slot_id, status)`,
@@ -42,6 +44,13 @@ const BOOKING_SCHEMA = [
   created_at TEXT NOT NULL,
   last_login TEXT
 )`,
+  `CREATE TABLE IF NOT EXISTS rooms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL DEFAULT '',
+  guide_url TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+)`,
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS login_links (
   token_hash TEXT PRIMARY KEY,
@@ -52,11 +61,19 @@ const BOOKING_SCHEMA = [
   ip_hash TEXT
 )`,
 ];
+// 已經上線的資料表，之後新增的欄位在這裡補上
+async function migrate(env) {
+  const add = [["slots", "room_id", "INTEGER"], ["bookings", "reminded_at", "TEXT"]];
+  for (const [table, col, type] of add) {
+    const { results } = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+    if (!(results || []).some((c) => c.name === col)) await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run();
+  }
+}
 let ready = null;
 async function init(env) {
   if (!ready) {
     const stmts = [SCHEMA, ...BOOKING_SCHEMA].map((q) => env.DB.prepare(q));
-    ready = env.DB.batch(stmts).catch((e) => { ready = null; throw e; });
+    ready = env.DB.batch(stmts).then(() => migrate(env)).catch((e) => { ready = null; throw e; });
   }
   await ready;
 }
@@ -166,6 +183,8 @@ async function adminAction(req, env, url) {
 const SERVICES = { "一對一皮拉提斯": 1, "小團體皮拉提斯": 4 };
 const BOOK_BEFORE_HOURS = 12; // 開課前幾小時停止線上預約
 const CANCEL_BEFORE_HOURS = 24; // 開課前幾小時內不能線上取消（請直接傳訊息給老師）
+const PREP_NOTE = "請著舒適運動服飾，並攜帶水壺與毛巾。"; // 預約成功信和上課提醒信都會附上
+// 上課前一天晚上 8 點（台灣時間）寄提醒信，時間設定在 wrangler.jsonc 的 triggers（"0 12 * * *" 是世界時間中午 12 點）
 
 const ADMIN_NAV = (on) => `<nav class="anav"><a href="/admin"${on === "fb" ? ' class="on"' : ""}>回饋管理</a><a href="/admin/booking"${on === "bk" ? ' class="on"' : ""}>預約管理</a></nav>`;
 const NAV_CSS = `.anav{display:flex;gap:8px;margin:0 0 18px}.anav a{padding:4px 14px;border-radius:999px;border:1px solid #EBD7D9;color:#736861;text-decoration:none;font-size:14px}.anav a.on{background:#A25D69;border-color:#A25D69;color:#fff}`;
@@ -201,29 +220,65 @@ function sendMail(env, ctx, msg) {
   if (ctx && ctx.waitUntil) ctx.waitUntil(job);
 }
 const SIGN = "\n\n柔柔老師\nRou Wellness\n\n（這封信由預約系統自動寄出，有任何問題直接回覆這封信就可以了。）";
+const ROOM_JOIN = "LEFT JOIN rooms r ON r.id = s.room_id";
+const ROOM_COLS = "r.name AS room_name, r.address AS room_address, r.guide_url AS room_url";
+
+// 地點說明：b 裡有 room_name、room_address、room_url（教室在管理頁設定）
+const atRoom = (b) => (b.room_name ? `於${b.room_name}的` : "的");
+function placeLines(b) {
+  const out = [];
+  if (b.room_address && b.room_url) out.push(`門市地址：${b.room_address}`, `交通指引請參考：${b.room_url}`);
+  else if (b.room_url) out.push(`門市地址與指引請參考：${b.room_url}`);
+  else if (b.room_address) out.push(`門市地址：${b.room_address}`);
+  return out.length ? "\n" + out.join("\n") : "";
+}
 
 function mailBooked(origin, b) {
   const link = `${origin}/booking/?cancel=${encodeURIComponent(b.token)}`;
   return {
     to: b.email,
-    subject: `預約完成：${b.service} ${b.when}`,
-    body: `${b.name} 你好，\n\n你的課程已經預約好了：\n\n課程：${b.service}\n時間：${b.when}\n\n如果需要取消，請在開課前 ${CANCEL_BEFORE_HOURS} 小時以前用這個連結取消：\n${link}\n\n開課前 ${CANCEL_BEFORE_HOURS} 小時內要取消或改時間，請直接回覆這封信或傳訊息給我。\n\n期待見到你！${SIGN}`,
+    subject: `預約完成：${b.when} ${b.service}`,
+    body: `${b.name} 您好，\n\n已為您預約好 ${b.when} ${atRoom(b)}${b.service}！\n${PREP_NOTE}${placeLines(b)}\n\n期待當天見面！\n\n如需取消，請在開課前 ${CANCEL_BEFORE_HOURS} 小時以前使用這個連結：\n${link}\n開課前 ${CANCEL_BEFORE_HOURS} 小時內需要取消或改時間，請直接回覆這封信或傳訊息給我。${SIGN}`,
     teacherSubject: `新預約：${b.when} ${b.service}（${b.name}）`,
-    teacherBody: `新預約\n\n課程：${b.service}\n時間：${b.when}\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n備註：${b.note || "（無）"}\n\n管理頁：${origin}/admin/booking`,
+    teacherBody: `新預約\n\n課程：${b.service}\n時間：${b.when}\n教室：${b.room_name || "（未設定）"}\n姓名：${b.name}\nEmail：${b.email}\n電話／LINE：${b.contact || "（未填）"}\n備註：${b.note || "（無）"}\n\n管理頁：${origin}/admin/booking`,
+  };
+}
+function mailReminder(b) {
+  return {
+    to: b.email,
+    subject: `明天上課提醒：${b.when} ${b.service}`,
+    body: `${b.name} 您好，\n\n提醒您明天有課：${b.when} ${atRoom(b)}${b.service}。\n${PREP_NOTE}${placeLines(b)}\n\n臨時需要取消或改時間，請直接回覆這封信或傳訊息給我。期待明天見面！${SIGN}`,
   };
 }
 function mailCancelled(origin, b, byTeacher) {
   return {
     to: b.email,
-    subject: `已取消預約：${b.service} ${b.when}`,
+    subject: `已取消預約：${b.when} ${b.service}`,
     body: byTeacher
-      ? `${b.name} 你好，\n\n很抱歉，以下這堂課老師這邊需要取消：\n\n課程：${b.service}\n時間：${b.when}\n\n可以到 ${origin}/booking/ 看看其他時段，或直接回覆這封信跟我討論。${SIGN}`
-      : `${b.name} 你好，\n\n已經幫你取消這堂課：\n\n課程：${b.service}\n時間：${b.when}\n\n謝謝你提早告知。之後想再預約，可以到 ${origin}/booking/ 選時段。${SIGN}`,
+      ? `${b.name} 您好，\n\n很抱歉，以下這堂課老師這邊需要取消：\n\n課程：${b.service}\n時間：${b.when}\n\n可以到 ${origin}/booking/ 看看其他時段，或直接回覆這封信跟我討論。${SIGN}`
+      : `${b.name} 您好，\n\n已為您取消這堂課：\n\n課程：${b.service}\n時間：${b.when}\n\n謝謝您提早告知。之後想再預約，可以到 ${origin}/booking/ 選時段。${SIGN}`,
     ...(byTeacher ? {} : {
       teacherSubject: `學員取消：${b.when} ${b.service}（${b.name}）`,
       teacherBody: `學員自己取消了預約\n\n課程：${b.service}\n時間：${b.when}\n姓名：${b.name}\nEmail：${b.email}\n\n管理頁：${origin}/admin/booking`,
     }),
   };
+}
+
+// 每天晚上 8 點：寄提醒信給明天有課、還沒收過提醒的學員
+async function sendReminders(env, ctx) {
+  if (!env.DB || !mailOn(env)) return;
+  await init(env);
+  const from = twNow(24).slice(0, 10) + " 00:00", to = twNow(48).slice(0, 10) + " 00:00";
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.name, b.email, s.service, s.starts_at, s.minutes, ${ROOM_COLS}
+     FROM bookings b JOIN slots s ON s.id = b.slot_id ${ROOM_JOIN}
+     WHERE b.status = 'booked' AND b.reminded_at IS NULL AND s.starts_at >= ? AND s.starts_at < ?`
+  ).bind(from, to).all();
+  const list = results || [];
+  if (!list.length) return;
+  const now = new Date().toISOString();
+  await env.DB.batch(list.map((b) => env.DB.prepare("UPDATE bookings SET reminded_at = ? WHERE id = ?").bind(now, b.id)));
+  for (const b of list) sendMail(env, ctx, mailReminder({ ...b, when: zhWhen(b.starts_at, b.minutes) }));
 }
 
 // ---------------- 學員帳號（Google 登入／Email 登入連結）----------------
@@ -389,12 +444,12 @@ async function me(req, env) {
 
 async function myBookings(env, user) {
   const { results } = await env.DB.prepare(
-    `SELECT b.id, b.status, s.service, s.starts_at, s.minutes FROM bookings b JOIN slots s ON s.id = b.slot_id
+    `SELECT b.id, b.status, s.service, s.starts_at, s.minutes, r.name AS room FROM bookings b JOIN slots s ON s.id = b.slot_id ${ROOM_JOIN}
      WHERE b.user_id = ? AND b.status = 'booked' AND s.starts_at > ? ORDER BY s.starts_at LIMIT 50`
   ).bind(user.id, twNow()).all();
   const cut = twNow(CANCEL_BEFORE_HOURS);
   return json({ ok: true, items: (results || []).map((b) => ({
-    id: b.id, service: b.service, when: zhWhen(b.starts_at, b.minutes), canCancel: b.starts_at > cut,
+    id: b.id, service: b.service, when: zhWhen(b.starts_at, b.minutes), room: b.room || "", canCancel: b.starts_at > cut,
   })) }, 200, { "cache-control": "no-store" });
 }
 
@@ -416,13 +471,13 @@ function sameSite(req, url) {
 
 async function listSlots(env) {
   const { results } = await env.DB.prepare(
-    `SELECT s.id, s.service, s.starts_at, s.minutes, s.capacity,
+    `SELECT s.id, s.service, s.starts_at, s.minutes, s.capacity, r.name AS room,
        (SELECT COUNT(*) FROM bookings b WHERE b.slot_id = s.id AND b.status = 'booked') AS taken
-     FROM slots s WHERE s.status = 'open' AND s.starts_at > ? ORDER BY s.starts_at LIMIT 200`
+     FROM slots s ${ROOM_JOIN} WHERE s.status = 'open' AND s.starts_at > ? ORDER BY s.starts_at LIMIT 200`
   ).bind(twNow(BOOK_BEFORE_HOURS)).all();
   const items = (results || []).map((r) => ({
     id: r.id, service: r.service, date: r.starts_at.slice(0, 10), when: zhWhen(r.starts_at, r.minutes),
-    left: Math.max(0, r.capacity - r.taken),
+    left: Math.max(0, r.capacity - r.taken), room: r.room || "",
   }));
   return json({ ok: true, items, bookBeforeHours: BOOK_BEFORE_HOURS, cancelBeforeHours: CANCEL_BEFORE_HOURS }, 200, { "cache-control": "no-store" });
 }
@@ -451,10 +506,11 @@ async function book(req, env, ctx, url, user) {
   ).bind(user.id, name, email, contact, note, token, new Date().toISOString(), slotId, twNow(BOOK_BEFORE_HOURS)).run();
   if (!r.meta || r.meta.changes !== 1) return json({ ok: false, error: "這個時段剛好額滿或已關閉，請選其他時段。", full: true }, 409);
   await env.DB.prepare("UPDATE users SET name = ?, phone = ? WHERE id = ?").bind(name, contact, user.id).run();
-  const s = await env.DB.prepare("SELECT service, starts_at, minutes FROM slots WHERE id = ?").bind(slotId).first();
+  const s = await env.DB.prepare(`SELECT s.service, s.starts_at, s.minutes, ${ROOM_COLS} FROM slots s ${ROOM_JOIN} WHERE s.id = ?`).bind(slotId).first();
   const when = zhWhen(s.starts_at, s.minutes);
-  sendMail(env, ctx, mailBooked(url.origin, { token, service: s.service, when, name, email, contact, note }));
-  return json({ ok: true, service: s.service, when, email, mail: mailOn(env) });
+  sendMail(env, ctx, mailBooked(url.origin, { ...s, token, when, name, email, contact, note }));
+  return json({ ok: true, service: s.service, when, email, mail: mailOn(env), prep: PREP_NOTE,
+    room: s.room_name || "", roomAddress: s.room_address || "", roomUrl: s.room_url || "" });
 }
 
 async function bookingByToken(env, token) {
@@ -492,8 +548,8 @@ async function bookingAdminPage(env, url) {
   const past = url.searchParams.get("past") === "1";
   const today = twNow().slice(0, 10);
   const q = past
-    ? "SELECT * FROM slots WHERE starts_at < ? ORDER BY starts_at DESC LIMIT 200"
-    : "SELECT * FROM slots WHERE starts_at >= ? ORDER BY starts_at LIMIT 300";
+    ? `SELECT s.*, r.name AS room FROM slots s ${ROOM_JOIN} WHERE s.starts_at < ? ORDER BY s.starts_at DESC LIMIT 200`
+    : `SELECT s.*, r.name AS room FROM slots s ${ROOM_JOIN} WHERE s.starts_at >= ? ORDER BY s.starts_at LIMIT 300`;
   const { results: slots } = await env.DB.prepare(q).bind(today).all();
   const ids = (slots || []).map((s) => s.id);
   const bySlot = {};
@@ -516,15 +572,29 @@ ${b.note ? `<div class="note">${esc(b.note)}</div>` : ""}</div>${b.status === "b
     const toggle = s.status === "closed"
       ? `<button class="go" data-a="open" data-id="${s.id}">重新開放</button>`
       : `<button data-a="close" data-id="${s.id}">關閉時段</button>`;
-    return `${head}<article class="${s.status === "closed" ? "s-closed" : ""}"><div class="top"><span><b>${esc(zhWhen(s.starts_at, s.minutes).split("）")[1])}</b>　${esc(s.service)}</span>${state}</div>
+    return `${head}<article class="${s.status === "closed" ? "s-closed" : ""}"><div class="top"><span><b>${esc(zhWhen(s.starts_at, s.minutes).split("）")[1])}</b>　${esc(s.service)}${s.room ? `　<span class="room">📍${esc(s.room)}</span>` : ""}</span>${state}</div>
 <p class="cnt">已預約 ${active.length} / ${s.capacity} 人</p>${people ? `<ul>${people}</ul>` : ""}
 <div class="btns">${toggle}<button class="del" data-a="delete" data-id="${s.id}" data-n="${active.length}">刪除</button></div></article>`;
   }).join("") || `<p class="hint">${past ? "沒有過去的時段。" : "還沒有開放的時段，用上面的表單新增吧。"}</p>`;
+  const { results: rooms = [] } = await env.DB.prepare("SELECT * FROM rooms ORDER BY id").all();
+  const roomOpts = rooms.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  const roomField = rooms.length
+    ? `<label class="full">教室<select name="room" required>${rooms.length > 1 ? '<option value="">請選擇教室</option>' : ""}${roomOpts}</select></label>`
+    : `<p class="full hint" style="margin:0">還沒有教室，學員會看不到上課地點。可以先到最下面的「教室設定」新增。</p>`;
+  const roomForm = (r) => `<form class="room-f" data-id="${r ? r.id : ""}">
+<label>教室名稱<input name="name" maxlength="40" required value="${r ? esc(r.name) : ""}" placeholder="例如：樂彼皮拉提斯 北屯店"></label>
+<label>地址<input name="address" maxlength="120" value="${r ? esc(r.address) : ""}" placeholder="選填"></label>
+<label>地址與交通指引連結<input name="url" maxlength="300" inputmode="url" value="${r ? esc(r.guide_url) : ""}" placeholder="選填，例如 Google 地圖或門市說明的網址"></label>
+<div class="btns"><button class="go" type="submit">${r ? "儲存" : "新增教室"}</button>${r ? `<button class="del" type="button" data-a="room-delete" data-id="${r.id}">刪除</button>` : ""}</div></form>`;
+  const roomSection = `<details class="rooms"${rooms.length ? "" : " open"}><summary>教室設定（${rooms.length} 間）</summary>
+<p class="hint">學員會在預約頁、預約成功信和上課提醒信看到這裡填的教室名稱、地址和指引連結。</p>
+${rooms.map(roomForm).join("")}<h3>新增教室</h3>${roomForm(null)}</details>`;
   const svcOpts = Object.entries(SERVICES).map(([n, c]) => `<option value="${esc(n)}" data-cap="${c}">${esc(n)}</option>`).join("");
   const warns = [];
   if (!mailOn(env)) warns.push("還沒有設定寄信（MAIL_URL、MAIL_SECRET）：學員收不到確認信，也不能用 Email 登入。");
   if (!googleOn(env)) warns.push("還沒有設定 Google 登入（GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET）。");
   if (!mailOn(env) && !googleOn(env)) warns.push("目前沒有任何登入方式，學員無法預約。");
+  if (!rooms.length) warns.push("還沒有新增教室：請到最下面的「教室設定」新增，學員才看得到上課地點。");
   if (!env.TURNSTILE_SECRET || !env.TURNSTILE_SITE_KEY) warns.push("還沒有設定 Turnstile 機器人驗證（TURNSTILE_SITE_KEY、TURNSTILE_SECRET）。");
   const mailHint = warns.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join("");
   const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>預約管理</title>
@@ -536,10 +606,14 @@ h2.day{font-size:16px;margin:26px 0 8px;color:#A25D69}
 article{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px 18px;margin-bottom:12px}.s-closed{opacity:.65}.top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.tag{font-size:13px;color:#2F6F5E}.tag.full{color:#A25D69}.tag.closed{color:#736861}.cnt{margin:2px 0;font-size:14px;color:#736861}
 ul{list-style:none;margin:8px 0 0;padding:0}li{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px dashed #EBD7D9;word-break:break-word}li.b-cancelled{color:#A99D96}li a{color:#A25D69}.x{font-size:13px}.note{font-size:14px;color:#736861;white-space:pre-wrap}
 .btns{display:flex;gap:10px;margin-top:10px}button{font:inherit;font-size:14px;padding:5px 14px;border-radius:999px;border:1px solid #A25D69;background:#fff;color:#A25D69;cursor:pointer;white-space:nowrap}button.go{background:#A25D69;color:#fff}button.del{border-color:#C9B8B0;color:#736861}
+.room{font-size:14px;color:#736861}
+details.rooms{margin-top:36px;background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px 18px}details.rooms summary{cursor:pointer;font-weight:500}details.rooms h3{font-size:15px;margin:18px 0 6px}
+.room-f{display:grid;gap:8px;padding:12px 0;border-top:1px dashed #EBD7D9}.room-f label{display:grid;gap:4px;font-size:14px;color:#736861}
 @media (max-width:520px){form.add{grid-template-columns:1fr}}</style></head>
 <body><main>${ADMIN_NAV("bk")}<h1>學員預約管理</h1><p class="hint">在這裡開放時段，學員登入後就能在 <a href="/booking/">/booking/</a> 頁面選時段（這個網址沒有放在網站選單上，請自己傳給學員），預約和取消都會寄信通知學員和你。開課前 ${BOOK_BEFORE_HOURS} 小時停止線上預約，${CANCEL_BEFORE_HOURS} 小時內學員不能自行取消。</p>${mailHint}
 <form class="add" id="add"><h2>新增時段</h2>
 <label class="full">服務<select name="service">${svcOpts}</select></label>
+${roomField}
 <label>日期<input type="date" name="date" required min="${today}"></label>
 <label>開始時間<input type="time" name="time" required step="300"></label>
 <label>課程長度（分鐘）<input type="number" name="minutes" value="60" min="15" max="240" step="5" required></label>
@@ -547,14 +621,17 @@ ul{list-style:none;margin:8px 0 0;padding:0}li{display:flex;justify-content:spac
 <label class="full">每週重複<select name="weeks"><option value="1">只有這一次</option>${[2, 4, 8, 12].map((n) => `<option value="${n}">連續 ${n} 週（同一天同時間）</option>`).join("")}</select></label>
 <div class="full"><button class="go" type="submit">新增時段</button></div></form>
 <div class="tabs"><a href="/admin/booking"${past ? "" : ' class="on"'}>今天以後</a><a href="/admin/booking?past=1"${past ? ' class="on"' : ""}>過去的時段</a></div>
-${cards}</main>
+${cards}${roomSection}</main>
 <script>
 const f=document.getElementById("add");
 f.service.addEventListener("change",()=>{f.capacity.value=f.service.selectedOptions[0].dataset.cap});
 async function send(body){const r=await fetch("/admin/booking/action",{method:"POST",headers:{"content-type":"application/json","x-requested-with":"admin"},body:JSON.stringify(body)});let j={};try{j=await r.json()}catch{}if(r.ok&&j.ok)location.reload();else alert(j.error||"失敗了，請再試一次");}
 f.addEventListener("submit",async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;
-await send({action:"add",service:f.service.value,date:f.date.value,time:f.time.value,minutes:Number(f.minutes.value),capacity:Number(f.capacity.value),weeks:Number(f.weeks.value)});b.disabled=false});
+await send({action:"add",service:f.service.value,room:f.room?Number(f.room.value)||0:0,date:f.date.value,time:f.time.value,minutes:Number(f.minutes.value),capacity:Number(f.capacity.value),weeks:Number(f.weeks.value)});b.disabled=false});
+document.querySelectorAll(".room-f").forEach(rf=>rf.addEventListener("submit",async e=>{e.preventDefault();const b=rf.querySelector("button");b.disabled=true;
+await send({action:rf.dataset.id?"room-save":"room-add",id:Number(rf.dataset.id)||0,name:rf.name.value,address:rf.address.value,url:rf.url.value});b.disabled=false}));
 document.addEventListener("click",async e=>{const b=e.target.closest("button[data-a]");if(!b)return;const a=b.dataset.a;
+if(a==="room-delete"&&!confirm("確定要刪除這間教室嗎？已經開的時段會變成沒有地點，學員收到的信也不會有地址。"))return;
 if(a==="delete"&&!confirm(Number(b.dataset.n)>0?"這個時段還有學員預約，刪除後會寄取消通知給這些學員，預約紀錄也會一起刪掉。確定嗎？":"確定要刪除這個時段嗎？"))return;
 if(a==="cancel-booking"&&!confirm("確定要取消這位學員的預約嗎？系統會寄信通知學員。"))return;
 b.disabled=true;await send({action:a,id:Number(b.dataset.id)});b.disabled=false});
@@ -575,6 +652,13 @@ async function bookingAdminAction(req, env, ctx, url) {
     if (!Number.isInteger(minutes) || minutes < 15 || minutes > 240) return json({ ok: false, error: "課程長度請填 15–240 分鐘" }, 400);
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return json({ ok: false, error: "人數上限請填 1–20" }, 400);
     if (!Number.isInteger(weeks) || weeks < 1 || weeks > 12) return json({ ok: false, error: "重複週數不正確" }, 400);
+    const roomCount = await env.DB.prepare("SELECT COUNT(*) AS n FROM rooms").first();
+    let roomId = null;
+    if (roomCount && roomCount.n > 0) {
+      const room = await env.DB.prepare("SELECT id FROM rooms WHERE id = ?").bind(Number(d.room) || 0).first();
+      if (!room) return json({ ok: false, error: "請選擇教室" }, 400);
+      roomId = room.id;
+    }
     const [y, m, day] = d.date.split("-").map(Number);
     const now = new Date().toISOString();
     const stmts = [];
@@ -585,16 +669,27 @@ async function bookingAdminAction(req, env, ctx, url) {
       if (startsAt <= twNow()) continue;
       const same = await env.DB.prepare("SELECT id FROM slots WHERE starts_at = ? AND status = 'open'").bind(startsAt).first();
       if (same) { clash.push(dt); continue; }
-      stmts.push(env.DB.prepare("INSERT INTO slots (service, starts_at, minutes, capacity, status, created_at) VALUES (?, ?, ?, ?, 'open', ?)")
-        .bind(d.service, startsAt, minutes, capacity, now));
+      stmts.push(env.DB.prepare("INSERT INTO slots (service, room_id, starts_at, minutes, capacity, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)")
+        .bind(d.service, roomId, startsAt, minutes, capacity, now));
     }
     if (!stmts.length) return json({ ok: false, error: clash.length ? "這些時間已經有開放的時段了：" + clash.join("、") : "時間已經過了，請選之後的時間" }, 400);
     await env.DB.batch(stmts);
     return json({ ok: true, added: stmts.length, skipped: clash });
   }
+  if (d.action === "room-add" || d.action === "room-save") {
+    const name = String(d.name || "").trim().slice(0, 40);
+    const address = String(d.address || "").trim().slice(0, 120);
+    const guide = String(d.url || "").trim().slice(0, 300);
+    if (!name) return json({ ok: false, error: "請填寫教室名稱" }, 400);
+    if (guide && !/^https?:\/\/\S+$/.test(guide)) return json({ ok: false, error: "指引連結要是 https:// 開頭的完整網址" }, 400);
+    if (d.action === "room-add") await env.DB.prepare("INSERT INTO rooms (name, address, guide_url, created_at) VALUES (?, ?, ?, ?)").bind(name, address, guide, new Date().toISOString()).run();
+    else await env.DB.prepare("UPDATE rooms SET name = ?, address = ?, guide_url = ? WHERE id = ?").bind(name, address, guide, Number(d.id)).run();
+    return json({ ok: true });
+  }
   const id = Number(d.id);
   if (!Number.isInteger(id)) return json({ ok: false }, 400);
-  if (d.action === "close") await env.DB.prepare("UPDATE slots SET status = 'closed' WHERE id = ?").bind(id).run();
+  if (d.action === "room-delete") await env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(id).run();
+  else if (d.action === "close") await env.DB.prepare("UPDATE slots SET status = 'closed' WHERE id = ?").bind(id).run();
   else if (d.action === "open") await env.DB.prepare("UPDATE slots SET status = 'open' WHERE id = ?").bind(id).run();
   else if (d.action === "delete") {
     const { results: bs } = await env.DB.prepare(
@@ -618,6 +713,9 @@ async function bookingAdminAction(req, env, ctx, url) {
 }
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(sendReminders(env, ctx));
+  },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const p = url.pathname;
