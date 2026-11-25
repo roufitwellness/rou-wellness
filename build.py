@@ -47,6 +47,12 @@ SERIES = [
 # ----------------------------------------------------------------------
 
 
+def v(name):
+    """網站用的 CSS／JS 網址加上版本號：檔案一改，瀏覽器就會重新下載，不會卡在舊版。"""
+    import hashlib
+    return f"/{name}?v=" + hashlib.sha1((ROOT / "assets" / name).read_bytes()).hexdigest()[:8]
+
+
 def esc(s):
     return html.escape(s, quote=True)
 
@@ -198,7 +204,7 @@ def page(title, desc, path, main, kind="website", ld=None, full_title=None, noin
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@500;600&display=swap">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="{v("style.css")}">
 {ld_tag}
 </head>
 <body>
@@ -322,7 +328,7 @@ def main():
   <div class="fb-list"></div>
   <p class="all"><a href="/feedback/">我也想留下回饋 →</a></p>
 </section>
-<script src="/feedback.js" defer></script>"""
+<script src="{v("feedback.js")}" defer></script>"""
     ld = {"@context": "https://schema.org", "@type": "Person", "name": NAME, "url": SITE_URL + "/",
           "jobTitle": "皮拉提斯與重訓教練", "sameAs": [u for u in (IG, FB, LINE) if u]}
     write("index.html", page(SITE_NAME, HOME_DESC, "/", home, ld=ld, full_title=HOME_TITLE))
@@ -386,7 +392,7 @@ def main():
         '<p class="fb-note">送出即表示你同意將這段文字公開顯示在這個網站上。</p>'
         '<button type="submit" class="btn">送出回饋</button><p id="fb-msg" class="fb-err" role="alert"></p></form>'
         '<p id="fb-thanks" class="lead" hidden>謝謝你的回饋！</p>'
-        '<script src="/feedback.js" defer></script></article>')
+        f'<script src="{v("feedback.js")}" defer></script></article>')
     write("feedback/index.html", page("學員回饋", "上過柔柔老師課程的學員，歡迎在這裡留下回饋。", "/feedback/", fb_main))
 
     # 學員預約：老師在 /admin/booking 開時段，學員登入（Google 或 Email 連結）後選時段，預約後寄確認信。
@@ -431,7 +437,7 @@ def main():
         '<div id="bk-cancel" class="bk-box bk-done" hidden><h2>取消預約</h2><p id="bk-cancel-info">讀取中…</p>'
         '<p id="bk-cancel-msg" class="lead" role="status"></p><button type="button" id="bk-cancel-btn" class="btn" hidden>確定取消這堂課</button></div>'
         '<noscript><p class="lead">預約功能需要開啟 JavaScript。</p></noscript>'
-        '<script src="/booking.js" defer></script></article>')
+        f'<script src="{v("booking.js")}" defer></script></article>')
     write("booking/index.html", page("學員預約", "柔柔老師的課程預約。", "/booking/", bk_main, noindex=True))
 
     # 404
