@@ -309,6 +309,7 @@ async function commentAdminPage(env, url) {
   await init(env);
   const titles = await postTitles(env, url);
   const { results } = await env.DB.prepare("SELECT id, post, name, message, status, reply, created_at FROM comments ORDER BY id DESC LIMIT 300").all();
+  if (results && results.length) await setSetting(env, "comments_seen", String(results[0].id)); // 首頁用來算「新留言」
   const { results: likeRows } = await env.DB.prepare("SELECT post, COUNT(*) AS n FROM likes GROUP BY post ORDER BY n DESC").all();
   const twTime = (iso) => new Date(Date.parse(iso) + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
   const rows = (results || []).map((r) => {
@@ -352,6 +353,68 @@ async function commentAdminAction(req, env, url) {
   return json({ ok: true });
 }
 
+// ---------------- 管理首頁 ----------------
+// 一打開就看到今天、明天的課，以及有沒有新留言、待公開的回饋、待付訂金的預約
+async function adminHome(env, url) {
+  await init(env);
+  const today = twNow().slice(0, 10), tomorrow = twNow(24).slice(0, 10), after = twNow(48).slice(0, 10);
+  const since = await depositSince(env);
+  const { results: rows } = await env.DB.prepare(
+    `SELECT s.id, s.service, s.starts_at, s.minutes, s.status AS slot_status, r.name AS room, b.name, b.seats, b.partners, b.paid_at, b.created_at
+     FROM slots s ${ROOM_JOIN} JOIN bookings b ON b.slot_id = s.id AND b.status = 'booked'
+     WHERE s.starts_at >= ? AND s.starts_at < ? ORDER BY s.starts_at, b.id`).bind(today, after).all();
+  const days = { [today]: [], [tomorrow]: [] };
+  for (const r of rows || []) {
+    const list = days[r.starts_at.slice(0, 10)];
+    if (!list) continue;
+    let slot = list.find((x) => x.id === r.id);
+    if (!slot) { slot = { ...r, people: [] }; list.push(slot); }
+    const friends = parsePartners(r.partners).map((f) => f.name).filter(Boolean);
+    const unpaid = since && !r.paid_at && r.created_at >= since;
+    slot.people.push(`${esc(r.name)}${friends.length ? `＋${esc(friends.join("、"))}` : ""}${unpaid ? ' <span class="due">未付訂金</span>' : ""}`);
+  }
+  const dayBox = (date, label) => {
+    const list = days[date];
+    const body = list.length ? list.map((x) => `<li><b>${esc(zhWhen(x.starts_at, x.minutes).split("）")[1])}</b>　${esc(x.service)}${x.room ? `　📍${esc(x.room)}` : ""}<br><span class="ppl">${x.people.join("、")}</span></li>`).join("")
+      : '<li class="none">沒有課</li>';
+    return `<section class="card"><h2>${label}<small>${esc(zhWhen(date + " 00:00", 0).split("）")[0])}）</small></h2><ul class="classes">${body}</ul></section>`;
+  };
+  const one = async (q, ...b) => ((await env.DB.prepare(q).bind(...b).first()) || {}).n || 0;
+  const seen = Number(await getSetting(env, "comments_seen")) || 0;
+  const newComments = await one("SELECT COUNT(*) AS n FROM comments WHERE id > ?", seen);
+  const { results: latest } = await env.DB.prepare("SELECT post, name, message FROM comments WHERE id > ? ORDER BY id DESC LIMIT 3").bind(seen).all();
+  const pendingFb = await one("SELECT COUNT(*) AS n FROM feedback WHERE status = 'pending'");
+  const upcoming = await one(`SELECT COUNT(*) AS n FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.status = 'booked' AND s.starts_at >= ? AND s.starts_at < ?`, twNow(), twNow(24 * 7));
+  const unpaid = since ? await one(`SELECT COUNT(*) AS n FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.status = 'booked' AND b.paid_at IS NULL AND b.created_at >= ? AND s.starts_at > ?`, since, twNow()) : 0;
+  const rooms = await one("SELECT COUNT(*) AS n FROM rooms");
+  const todo = [];
+  if (unpaid) todo.push(["/admin/booking", `${unpaid} 筆預約還沒付訂金`, "到預約頁標記「已付訂金」"]);
+  if (newComments) todo.push(["/admin/comments", `${newComments} 則新留言`, "看看有沒有要回覆或隱藏的"]);
+  if (pendingFb) todo.push(["/admin/feedback", `${pendingFb} 則學員回饋等你公開`, "按「公開」才會顯示在網站上"]);
+  const setup = [!mailOn(env), !googleOn(env) && !mailOn(env), !rooms, !env.TURNSTILE_SECRET || !env.TURNSTILE_SITE_KEY].filter(Boolean).length;
+  if (setup) todo.push(["/admin/booking", `預約系統有 ${setup} 項設定還沒完成`, "詳細在預約頁最上面的黃色提醒"]);
+  const titles = latest && latest.length ? await postTitles(env, url) : {};
+  const preview = (latest || []).map((c) => `<li><span class="ppl">${esc(titles[c.post] || c.post)}</span><br><b>${esc(c.name)}</b>：${esc(c.message.length > 60 ? c.message.slice(0, 60) + "…" : c.message)}</li>`).join("");
+  const todoHtml = todo.length
+    ? todo.map(([href, t, sub]) => `<a class="todo" href="${href}"><b>${esc(t)}</b><span>${esc(sub)}</span></a>`).join("")
+    : '<p class="ok">目前沒有待處理的事 ✓</p>';
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>管理首頁</title>
+<style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:680px;margin:0 auto;padding:24px 16px 60px}${NAV_CSS}h1{font-size:22px;margin:0 0 16px}
+.card{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:14px 18px;margin-bottom:14px}.card h2{font-size:17px;margin:0 0 6px;display:flex;align-items:baseline;gap:10px}.card h2 small{font-size:13px;font-weight:400;color:#736861}
+ul{list-style:none;padding:0;margin:0}ul li{padding:8px 0;border-top:1px solid #F3E6E7;font-size:15px;overflow-wrap:anywhere}ul li:first-child{border-top:0}.none{color:#736861}.ppl{color:#736861;font-size:14px}.due{display:inline-block;font-size:12px;line-height:1.6;padding:0 8px;border-radius:999px;background:#FCEBDD;color:#9B4022}
+.todo{display:block;text-decoration:none;color:inherit;background:#F8E5E9;border:1px solid #EBCAD0;border-radius:14px;padding:10px 16px;margin-bottom:8px}.todo b{display:block;color:#A25D69;font-weight:500}.todo span{font-size:13.5px;color:#736861}.ok{margin:0;color:#2F6F5E}
+.stat{font-size:15px;margin:0}.stat b{color:#A25D69;font-size:20px;font-weight:500;margin:0 4px}
+.links{display:flex;flex-wrap:wrap;gap:8px}.links a{padding:6px 14px;border-radius:999px;border:1px solid #EBD7D9;background:#fff;color:#A25D69;text-decoration:none;font-size:14px}.more{display:inline-block;margin-top:6px;font-size:14px;color:#A25D69}</style></head>
+<body><main>${ADMIN_NAV("home")}<h1>管理首頁</h1>
+<section class="card"><h2>待處理</h2>${todoHtml}</section>
+${dayBox(today, "今天的課")}${dayBox(tomorrow, "明天的課")}
+<section class="card"><p class="stat">接下來 7 天共有<b>${upcoming}</b>筆預約</p><a class="more" href="/admin/booking">看全部時段、開新時段 →</a></section>
+${preview ? `<section class="card"><h2>最新留言</h2><ul>${preview}</ul><a class="more" href="/admin/comments">到留言管理 →</a></section>` : ""}
+<section class="card"><h2>常用連結</h2><div class="links"><a href="/booking/" target="_blank">學員預約頁（傳給學員）</a><a href="/" target="_blank">網站首頁</a><a href="/posts/" target="_blank">全部文章</a></div></section>
+</main></body></html>`;
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
 // ---------------- 學員預約 ----------------
 // 服務項目與預設人數上限（管理頁新增時段時可以再改人數）
 // capacity：人數上限；friends：學員要自己找幾位朋友一起來（預約時要填朋友的姓名和電話）。
@@ -379,7 +442,8 @@ const CANCEL_BEFORE_HOURS = 30; // 開課前幾小時內不能線上取消（跟
 const PREP_NOTE = "請著舒適運動服飾，並攜帶水壺與毛巾。"; // 預約成功信和上課提醒信都會附上
 // 上課前一天晚上 8 點（台灣時間）寄提醒信，時間設定在 wrangler.jsonc 的 triggers（"0 12 * * *" 是世界時間中午 12 點）
 
-const ADMIN_NAV = (on) => `<nav class="anav"><a href="/admin"${on === "fb" ? ' class="on"' : ""}>回饋管理</a><a href="/admin/booking"${on === "bk" ? ' class="on"' : ""}>預約管理</a><a href="/admin/comments"${on === "cm" ? ' class="on"' : ""}>留言管理</a></nav>`;
+const ADMIN_TABS = [["home", "/admin", "首頁"], ["bk", "/admin/booking", "預約"], ["cm", "/admin/comments", "留言"], ["fb", "/admin/feedback", "回饋"]];
+const ADMIN_NAV = (on) => `<nav class="anav">${ADMIN_TABS.map(([k, href, label]) => `<a href="${href}"${on === k ? ' class="on"' : ""}>${label}</a>`).join("")}</nav>`;
 const NAV_CSS = `.anav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}.anav a{padding:4px 14px;border-radius:999px;border:1px solid #EBD7D9;color:#736861;text-decoration:none;font-size:14px}.anav a.on{background:#A25D69;border-color:#A25D69;color:#fff}`;
 
 // 台灣時間，格式 "YYYY-MM-DD HH:MM"，字串可以直接比大小
@@ -1098,12 +1162,13 @@ export default {
         if (p === "/admin/booking/action") return req.method === "POST" ? await bookingAdminAction(req, env, ctx, url) : json({ ok: false }, 405);
         return await bookingAdminPage(env, url);
       }
-      if (p === "/admin" || p === "/admin/" || p === "/admin/action") {
+      if (p === "/admin" || p === "/admin/" || p === "/admin/feedback" || p === "/admin/feedback/" || p === "/admin/action") {
         const a = authed(req, env);
         if (a !== true) return needAuth(a);
         if (!env.DB) return new Response("資料庫還沒有連上。", { status: 503 });
         if (p === "/admin/action") return req.method === "POST" ? await adminAction(req, env, url) : json({ ok: false }, 405);
-        return await adminPage(env);
+        if (p.startsWith("/admin/feedback")) return await adminPage(env);
+        return await adminHome(env, url);
       }
     } catch (e) {
       return json({ ok: false, error: "server-error" }, 500);
