@@ -66,6 +66,7 @@ const BOOKING_SCHEMA = [
   used INTEGER NOT NULL DEFAULT 0,
   ip_hash TEXT
 )`,
+  `CREATE TABLE IF NOT EXISTS admin_fails (ip_hash TEXT NOT NULL, at TEXT NOT NULL)`,
 ];
 // 已經上線的資料表，之後新增的欄位在這裡補上
 async function migrate(env) {
@@ -123,6 +124,29 @@ function authed(req, env) {
     pass = pass.slice(pass.indexOf(":") + 1);
   } catch { return false; }
   return safeEqual(pass, env.ADMIN_PASSWORD);
+}
+
+// 管理頁防猜密碼：同一個網路位址 15 分鐘內打錯 10 次，就先擋 15 分鐘（期間打對也進不去）
+const ADMIN_MAX_FAILS = 10, ADMIN_LOCK_MINUTES = 15;
+async function adminGate(req, env) {
+  const state = authed(req, env);
+  if (state === "missing" || !env.DB) return state === true ? true : needAuth(state);
+  await init(env);
+  const ipHash = await sha256("admin:" + (req.headers.get("cf-connecting-ip") || "unknown"));
+  const since = new Date(Date.now() - ADMIN_LOCK_MINUTES * 60 * 1000).toISOString();
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_fails WHERE ip_hash = ? AND at > ?").bind(ipHash, since).first();
+  if (r && r.n >= ADMIN_MAX_FAILS) {
+    return new Response(`密碼錯誤太多次，請 ${ADMIN_LOCK_MINUTES} 分鐘後再試。`, { status: 429, headers: { "content-type": "text/plain; charset=utf-8", "retry-after": String(ADMIN_LOCK_MINUTES * 60) } });
+  }
+  if (state === true) {
+    await env.DB.prepare("DELETE FROM admin_fails WHERE ip_hash = ? OR at <= ?").bind(ipHash, since).run();
+    return true;
+  }
+  // 沒帶密碼（瀏覽器第一次開頁面）不算打錯
+  if ((req.headers.get("authorization") || "").startsWith("Basic ")) {
+    await env.DB.prepare("INSERT INTO admin_fails (ip_hash, at) VALUES (?, ?)").bind(ipHash, new Date().toISOString()).run();
+  }
+  return needAuth(state);
 }
 
 function needAuth(state) {
@@ -920,15 +944,15 @@ export default {
         return json({ ok: false }, 405);
       }
       if (p === "/admin/booking" || p === "/admin/booking/" || p === "/admin/booking/action") {
-        const a = authed(req, env);
-        if (a !== true) return needAuth(a);
+        const a = await adminGate(req, env);
+        if (a !== true) return a;
         if (!env.DB) return new Response("資料庫還沒有連上。", { status: 503 });
         if (p === "/admin/booking/action") return req.method === "POST" ? await bookingAdminAction(req, env, ctx, url) : json({ ok: false }, 405);
         return await bookingAdminPage(env, url);
       }
       if (p === "/admin" || p === "/admin/" || p === "/admin/action") {
-        const a = authed(req, env);
-        if (a !== true) return needAuth(a);
+        const a = await adminGate(req, env);
+        if (a !== true) return a;
         if (!env.DB) return new Response("資料庫還沒有連上。", { status: 503 });
         if (p === "/admin/action") return req.method === "POST" ? await adminAction(req, env, url) : json({ ok: false }, 405);
         return await adminPage(env);
