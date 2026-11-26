@@ -1,4 +1,4 @@
-// Cloudflare Worker：學員回饋（先存「待審核」，Rou 確認後才公開）與學員預約（老師開時段，學員用 Google 或 Email 登入後選時段，並寄確認信）。其他網址交給靜態網站。
+// Cloudflare Worker：文章留言與按讚（留言直接公開，老師可隱藏）、學員回饋（先存「待審核」，Rou 確認後才公開）與學員預約（老師開時段，學員用 Google 或 Email 登入後選時段，並寄確認信）。其他網址交給靜態網站。
 const SCHEMA = `CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -67,6 +67,27 @@ const BOOKING_SCHEMA = [
   ip_hash TEXT
 )`,
 ];
+// 文章留言與按讚。留言送出就公開，老師可以在 /admin/comments 隱藏或刪除
+const POST_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post TEXT NOT NULL,
+  name TEXT NOT NULL,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'shown',
+  reply TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  ip_hash TEXT
+)`,
+  `CREATE INDEX IF NOT EXISTS comments_post ON comments (post, status)`,
+  `CREATE TABLE IF NOT EXISTS likes (
+  post TEXT NOT NULL,
+  visitor TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  ip_hash TEXT,
+  PRIMARY KEY (post, visitor)
+)`,
+];
 // 已經上線的資料表，之後新增的欄位在這裡補上
 async function migrate(env) {
   const add = [["slots", "room_id", "INTEGER"], ["bookings", "reminded_at", "TEXT"],
@@ -89,7 +110,7 @@ const depositSince = (env) => getSetting(env, "deposit_since");
 let ready = null;
 async function init(env) {
   if (!ready) {
-    const stmts = [SCHEMA, ...BOOKING_SCHEMA].map((q) => env.DB.prepare(q));
+    const stmts = [SCHEMA, ...BOOKING_SCHEMA, ...POST_SCHEMA].map((q) => env.DB.prepare(q));
     ready = env.DB.batch(stmts).then(() => migrate(env)).catch((e) => { ready = null; throw e; });
   }
   await ready;
@@ -195,6 +216,142 @@ async function adminAction(req, env, url) {
   return json({ ok: true });
 }
 
+// ---------------- 文章留言與按讚 ----------------
+// 留言送出就直接公開；老師在 /admin/comments 可以隱藏、恢復、刪除，也可以用「柔柔老師」的名義回覆。
+const COMMENT_MAX = 500;
+const COMMENTS_PER_HOUR = 5; // 同一個網路一小時最多留幾則
+const LIKES_PER_HOUR = 60;
+const TEACHER_NAME = "柔柔老師";
+
+// 文章清單（slug → 標題）由 build.py 產生在 /posts.json，用來確認留言和按讚的文章真的存在
+let postCache = null;
+async function postTitles(env, url) {
+  if (postCache && Date.now() - postCache.at < 5 * 60 * 1000) return postCache.map;
+  let map = {};
+  try {
+    const r = await env.ASSETS.fetch(new Request(url.origin + "/posts.json"));
+    if (r.ok) map = await r.json();
+  } catch {}
+  postCache = { at: Date.now(), map };
+  return map;
+}
+async function postTitle(env, url, slug) {
+  if (typeof slug !== "string" || !/^[a-z0-9-]{1,80}$/.test(slug)) return null;
+  const map = await postTitles(env, url);
+  return Object.prototype.hasOwnProperty.call(map, slug) ? map[slug] : null;
+}
+
+async function postInfo(env, url) {
+  const slug = url.searchParams.get("slug");
+  if ((await postTitle(env, url, slug)) === null) return json({ ok: false }, 404);
+  await init(env);
+  const like = await env.DB.prepare("SELECT COUNT(*) AS n FROM likes WHERE post = ?").bind(slug).first();
+  const { results } = await env.DB.prepare(
+    "SELECT id, name, message, reply, created_at FROM comments WHERE post = ? AND status = 'shown' ORDER BY id ASC LIMIT 300").bind(slug).all();
+  return json({
+    ok: true, likes: (like && like.n) || 0, comments: results || [], teacher: TEACHER_NAME,
+    turnstileSiteKey: env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY || "" : "",
+  }, 200, { "cache-control": "no-store" });
+}
+
+async function addComment(req, env, ctx, url) {
+  let d; try { d = await req.json(); } catch { return json({ ok: false, error: "格式不正確" }, 400); }
+  if (d.hp) return json({ ok: true, comment: null }); // 機器人欄位被填寫：假裝成功
+  const title = await postTitle(env, url, d.post);
+  if (title === null) return json({ ok: false, error: "找不到這篇文章" }, 404);
+  const name = String(d.name || "").trim().replace(/\s+/g, " ").slice(0, 20) || "訪客";
+  const message = String(d.message || "").replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (message.length < 2) return json({ ok: false, error: "再多寫幾個字吧" }, 400);
+  if (message.length > COMMENT_MAX) return json({ ok: false, error: `字數有點多，請縮短在 ${COMMENT_MAX} 字內` }, 400);
+  if (/https?:\/\/|www\.|\.(com|net|org|tw|cc|xyz|top)\b/i.test(message + " " + name)) return json({ ok: false, error: "留言裡不能放網址喔" }, 400);
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  if (!(await verifyTurnstile(env, d.turnstile, ip, url.hostname))) return json({ ok: false, error: "請先完成下方的機器人驗證", turnstile: true }, 400);
+  await init(env);
+  const ipHash = await sha256("rou:" + ip);
+  const hour = new Date(Date.now() - 3600 * 1000).toISOString();
+  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE ip_hash = ? AND created_at > ?").bind(ipHash, hour).first();
+  if (recent && recent.n >= COMMENTS_PER_HOUR) return json({ ok: false, error: "留言太頻繁了，請稍後再試" }, 429);
+  const day = new Date(Date.now() - 86400 * 1000).toISOString();
+  const all = await env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE created_at > ?").bind(day).first();
+  if (all && all.n >= 300) return json({ ok: false, error: "目前暫時無法留言，請明天再試" }, 503);
+  const now = new Date().toISOString();
+  const r = await env.DB.prepare("INSERT INTO comments (post, name, message, status, created_at, ip_hash) VALUES (?, ?, ?, 'shown', ?, ?) RETURNING id")
+    .bind(d.post, name, message, now, ipHash).first();
+  sendMail(env, ctx, {
+    teacherSubject: `新留言：${title}（${name}）`,
+    teacherBody: `文章「${title}」有一則新留言，已經公開顯示。\n\n${name}：\n${message}\n\n文章：${url.origin}/posts/${d.post}/#comments\n要隱藏或回覆，請到留言管理：${url.origin}/admin/comments`,
+  });
+  return json({ ok: true, comment: { id: r.id, name, message, reply: "", created_at: now } });
+}
+
+async function toggleLike(req, env, url) {
+  let d; try { d = await req.json(); } catch { return json({ ok: false }, 400); }
+  if ((await postTitle(env, url, d.post)) === null) return json({ ok: false }, 404);
+  const visitor = String(d.visitor || "");
+  if (!/^[A-Za-z0-9_-]{16,40}$/.test(visitor)) return json({ ok: false }, 400);
+  await init(env);
+  if (d.on) {
+    const ipHash = await sha256("rou:" + (req.headers.get("cf-connecting-ip") || "unknown"));
+    const hour = new Date(Date.now() - 3600 * 1000).toISOString();
+    const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM likes WHERE ip_hash = ? AND created_at > ?").bind(ipHash, hour).first();
+    if (!recent || recent.n < LIKES_PER_HOUR) {
+      await env.DB.prepare("INSERT OR IGNORE INTO likes (post, visitor, created_at, ip_hash) VALUES (?, ?, ?, ?)")
+        .bind(d.post, visitor, new Date().toISOString(), ipHash).run();
+    }
+  } else {
+    await env.DB.prepare("DELETE FROM likes WHERE post = ? AND visitor = ?").bind(d.post, visitor).run();
+  }
+  const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM likes WHERE post = ?").bind(d.post).first();
+  return json({ ok: true, likes: (c && c.n) || 0 });
+}
+
+async function commentAdminPage(env, url) {
+  await init(env);
+  const titles = await postTitles(env, url);
+  const { results } = await env.DB.prepare("SELECT id, post, name, message, status, reply, created_at FROM comments ORDER BY id DESC LIMIT 300").all();
+  const { results: likeRows } = await env.DB.prepare("SELECT post, COUNT(*) AS n FROM likes GROUP BY post ORDER BY n DESC").all();
+  const twTime = (iso) => new Date(Date.parse(iso) + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+  const rows = (results || []).map((r) => {
+    const t = titles[r.post] || r.post;
+    const shown = r.status === "shown";
+    return `<article class="${shown ? "" : "off"}"><div class="top"><a href="/posts/${esc(r.post)}/#comments" target="_blank">${esc(t)}</a><span>${esc(twTime(r.created_at))}</span></div>
+${shown ? "" : '<p class="tag">已隱藏（網站上看不到）</p>'}<p class="who">${esc(r.name)}</p><p class="msg">${esc(r.message)}</p>
+<details${r.reply ? " open" : ""}><summary>${r.reply ? "老師的回覆" : "回覆這則留言"}</summary><textarea rows="3" maxlength="${COMMENT_MAX}" data-reply="${r.id}">${esc(r.reply)}</textarea><button class="go" data-a="reply" data-id="${r.id}">儲存回覆</button><span class="hint2">清空再儲存就是刪除回覆</span></details>
+<div class="btns">${shown ? `<button data-a="hide" data-id="${r.id}">隱藏</button>` : `<button class="go" data-a="show" data-id="${r.id}">恢復顯示</button>`}<button class="del" data-a="delete" data-id="${r.id}">刪除</button></div></article>`;
+  }).join("") || "<p>目前還沒有留言。</p>";
+  const likes = (likeRows || []).filter((r) => titles[r.post]).map((r) => `<li><span>${esc(titles[r.post])}</span><b>♥ ${r.n}</b></li>`).join("");
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>留言管理</title>
+<style>body{margin:0;background:#FAF4F1;color:#554F49;font:16px/1.8 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:640px;margin:0 auto;padding:24px 16px 60px}${NAV_CSS}h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 10px}.hint{color:#736861;font-size:14px;margin:0 0 20px}
+article{background:#fff;border:1px solid #EBD7D9;border-radius:16px;padding:16px 18px;margin-bottom:14px}article.off{background:#F3EEEB;opacity:.85}.top{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:#736861}.top a{color:#A25D69;text-decoration:none}.tag{margin:6px 0 0;color:#B4472F;font-size:13px}.who{margin:8px 0 0;font-weight:500}.msg{margin:2px 0 0;white-space:pre-wrap;word-break:break-word}
+details{margin-top:10px;font-size:14px}summary{cursor:pointer;color:#A25D69}textarea{display:block;width:100%;box-sizing:border-box;font:inherit;border:1px solid #EBD7D9;border-radius:12px;padding:8px 12px;margin:8px 0}.hint2{margin-left:10px;color:#736861;font-size:13px}
+.btns{display:flex;gap:10px;margin-top:12px}button{font:inherit;font-size:14px;padding:6px 16px;border-radius:999px;border:1px solid #A25D69;background:#fff;color:#A25D69;cursor:pointer}button.go{background:#A25D69;color:#fff}button.del{border-color:#C9B8B0;color:#736861}
+ul.likes{list-style:none;padding:0;margin:0;background:#fff;border:1px solid #EBD7D9;border-radius:16px}ul.likes li{display:flex;justify-content:space-between;gap:12px;padding:8px 18px;border-top:1px solid #F3E6E7;font-size:15px}ul.likes li:first-child{border-top:0}ul.likes b{color:#A25D69;font-weight:500;white-space:nowrap}</style></head>
+<body><main>${ADMIN_NAV("cm")}<h1>文章留言管理</h1><p class="hint">留言送出後會直接顯示在文章底下。不適合的留言按「隱藏」，網站上就看不到了，之後還可以恢復。有新留言時會寄信通知你。</p>${rows}
+${likes ? `<h2>文章按讚數</h2><ul class="likes">${likes}</ul>` : ""}</main>
+<script>document.addEventListener("click",async e=>{const b=e.target.closest("button[data-a]");if(!b)return;const a=b.dataset.a,id=Number(b.dataset.id);if(a==="delete"&&!confirm("確定要永久刪除這則留言嗎？（只想先藏起來，可以按「隱藏」）"))return;
+const body={id,action:a};if(a==="reply")body.reply=document.querySelector('[data-reply="'+id+'"]').value;b.disabled=true;
+const r=await fetch("/admin/comments/action",{method:"POST",headers:{"content-type":"application/json","x-requested-with":"admin"},body:JSON.stringify(body)});if(r.ok)location.reload();else{alert("失敗了，請再試一次");b.disabled=false}});</script></body></html>`;
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+async function commentAdminAction(req, env, url) {
+  if (req.headers.get("x-requested-with") !== "admin") return json({ ok: false }, 403);
+  const origin = req.headers.get("origin");
+  if (origin && new URL(origin).host !== url.host) return json({ ok: false }, 403);
+  let d; try { d = await req.json(); } catch { return json({ ok: false }, 400); }
+  const id = Number(d.id);
+  if (!Number.isInteger(id)) return json({ ok: false }, 400);
+  await init(env);
+  if (d.action === "hide") await env.DB.prepare("UPDATE comments SET status = 'hidden' WHERE id = ?").bind(id).run();
+  else if (d.action === "show") await env.DB.prepare("UPDATE comments SET status = 'shown' WHERE id = ?").bind(id).run();
+  else if (d.action === "delete") await env.DB.prepare("DELETE FROM comments WHERE id = ?").bind(id).run();
+  else if (d.action === "reply") {
+    const reply = String(d.reply || "").replace(/\r\n?/g, "\n").trim().slice(0, COMMENT_MAX);
+    await env.DB.prepare("UPDATE comments SET reply = ? WHERE id = ?").bind(reply, id).run();
+  } else return json({ ok: false }, 400);
+  return json({ ok: true });
+}
+
 // ---------------- 學員預約 ----------------
 // 服務項目與預設人數上限（管理頁新增時段時可以再改人數）
 // capacity：人數上限；friends：學員要自己找幾位朋友一起來（預約時要填朋友的姓名和電話）。
@@ -222,8 +379,8 @@ const CANCEL_BEFORE_HOURS = 30; // 開課前幾小時內不能線上取消（跟
 const PREP_NOTE = "請著舒適運動服飾，並攜帶水壺與毛巾。"; // 預約成功信和上課提醒信都會附上
 // 上課前一天晚上 8 點（台灣時間）寄提醒信，時間設定在 wrangler.jsonc 的 triggers（"0 12 * * *" 是世界時間中午 12 點）
 
-const ADMIN_NAV = (on) => `<nav class="anav"><a href="/admin"${on === "fb" ? ' class="on"' : ""}>回饋管理</a><a href="/admin/booking"${on === "bk" ? ' class="on"' : ""}>預約管理</a></nav>`;
-const NAV_CSS = `.anav{display:flex;gap:8px;margin:0 0 18px}.anav a{padding:4px 14px;border-radius:999px;border:1px solid #EBD7D9;color:#736861;text-decoration:none;font-size:14px}.anav a.on{background:#A25D69;border-color:#A25D69;color:#fff}`;
+const ADMIN_NAV = (on) => `<nav class="anav"><a href="/admin"${on === "fb" ? ' class="on"' : ""}>回饋管理</a><a href="/admin/booking"${on === "bk" ? ' class="on"' : ""}>預約管理</a><a href="/admin/comments"${on === "cm" ? ' class="on"' : ""}>留言管理</a></nav>`;
+const NAV_CSS = `.anav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}.anav a{padding:4px 14px;border-radius:999px;border:1px solid #EBD7D9;color:#736861;text-decoration:none;font-size:14px}.anav a.on{background:#A25D69;border-color:#A25D69;color:#fff}`;
 
 // 台灣時間，格式 "YYYY-MM-DD HH:MM"，字串可以直接比大小
 const twNow = (plusHours = 0) => new Date(Date.now() + (8 + plusHours) * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
@@ -918,6 +1075,21 @@ export default {
         if (req.method === "GET") return await cancelInfo(env, url);
         if (req.method === "POST") return await cancelBooking(req, env, ctx, url);
         return json({ ok: false }, 405);
+      }
+      if (p === "/api/post" || p === "/api/comment" || p === "/api/like") {
+        if (!env.DB) return json({ ok: false, error: "目前暫時無法使用。" }, 503);
+        if (p === "/api/post") return req.method === "GET" ? await postInfo(env, url) : json({ ok: false }, 405);
+        if (req.method !== "POST") return json({ ok: false }, 405);
+        if (!sameSite(req, url)) return json({ ok: false }, 403);
+        if (p === "/api/comment") return await addComment(req, env, ctx, url);
+        return await toggleLike(req, env, url);
+      }
+      if (p === "/admin/comments" || p === "/admin/comments/" || p === "/admin/comments/action") {
+        const a = authed(req, env);
+        if (a !== true) return needAuth(a);
+        if (!env.DB) return new Response("資料庫還沒有連上。", { status: 503 });
+        if (p === "/admin/comments/action") return req.method === "POST" ? await commentAdminAction(req, env, url) : json({ ok: false }, 405);
+        return await commentAdminPage(env, url);
       }
       if (p === "/admin/booking" || p === "/admin/booking/" || p === "/admin/booking/action") {
         const a = authed(req, env);

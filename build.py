@@ -272,6 +272,39 @@ def copy_images():
         shutil.copy(f, dest / f.name)
 
 
+HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 8 3.6 4.5 7.1 4.5c2 0 3.6 1.1 4.9 2.9 1.3-1.8 2.9-2.9 4.9-2.9 3.5 0 5.7 3.5 4.4 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>'
+
+
+def engage(p):
+    """文章最下面的按讚、分享和留言區（動作在 assets/post.js，資料存在 worker 的資料庫）。"""
+    from urllib.parse import quote
+    url = f'{SITE_URL}/posts/{p["slug"]}/'
+    u = quote(url, safe="")
+    return f"""<div class="engage" data-post="{esc(p["slug"])}" data-title="{esc(p["title"])}">
+  <button type="button" class="eng-btn like" aria-pressed="false" aria-label="喜歡這篇文章">{HEART}<span>喜歡</span><span class="like-n"></span></button>
+  <div class="share-group"><span class="lbl">分享</span>
+    <button type="button" class="eng-btn share-native" hidden>分享給朋友</button>
+    <a class="eng-btn share-line" href="https://social-plugins.line.me/lineit/share?url={u}" target="_blank" rel="noopener">LINE</a>
+    <a class="eng-btn share-fb" href="https://www.facebook.com/sharer/sharer.php?u={u}" target="_blank" rel="noopener">Facebook</a>
+    <button type="button" class="eng-btn share-copy">複製連結</button>
+  </div>
+</div>
+<section id="comments" class="comments" aria-labelledby="cm-title">
+  <h2 id="cm-title">留言 <span class="cm-n"></span></h2>
+  <ol class="cm-list"></ol>
+  <p class="cm-empty">還沒有留言，歡迎留下第一則。</p>
+  <form id="cm-form" class="fb-form" novalidate>
+    <label>暱稱<span>（不填會顯示「訪客」）</span><input name="name" maxlength="20" autocomplete="nickname"></label>
+    <label>留言<textarea name="message" rows="4" maxlength="500" required></textarea></label>
+    <input name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <div id="cm-ts"></div>
+    <p class="fb-note">留言會直接公開顯示。請不要留下電話、病歷等個人資料；個別的身體狀況，歡迎私訊詢問。</p>
+    <button type="submit" class="btn">送出留言</button><p id="cm-msg" class="fb-err" role="status"></p>
+  </form>
+</section>
+<script src="{v("post.js")}" defer></script>"""
+
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -280,6 +313,7 @@ def main():
     shutil.copy(ROOT / "assets" / "favicon.svg", OUT / "favicon.svg")
     shutil.copy(ROOT / "assets" / "feedback.js", OUT / "feedback.js")
     shutil.copy(ROOT / "assets" / "booking.js", OUT / "booking.js")
+    shutil.copy(ROOT / "assets" / "post.js", OUT / "post.js")
     copy_images()
 
     posts = [load(p) for p in sorted((ROOT / "content" / "posts").glob("*.md"))]
@@ -352,6 +386,9 @@ def main():
             write(f'series/{s["slug"]}/index.html', page(s["name"], s["desc"], f'/series/{s["slug"]}/',
                   f'<section class="sec first"><h1 class="page-title">{esc(s["name"])}</h1><p class="lead">{esc(s["desc"])}</p><div class="cards">{"".join(card(p) for p in ps)}</div></section>'))
 
+    # 文章清單（給 worker 確認留言和按讚的文章存在，也用在留言管理頁顯示標題）
+    write("posts.json", json.dumps({p["slug"]: p["title"] for p in posts}, ensure_ascii=False))
+
     # 單篇文章
     for p in posts:
         others = [o for o in posts if o["slug"] != p["slug"]][:2]
@@ -369,6 +406,7 @@ def main():
   <div class="prose">
 {md_to_html(p["body"])}
   </div>
+{engage(p)}
 </article>
 {more}"""
         ld = {"@context": "https://schema.org", "@type": "Article", "headline": p["title"], "description": p["description"],
